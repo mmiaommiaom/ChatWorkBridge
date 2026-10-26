@@ -1,0 +1,15 @@
+{
+  "dataDrive": "E:",
+  "workbuddyExe": "E:/Apps/WorkBuddy/WorkBuddyAI.exe",
+  "chromeExe": "E:/Apps/Chrome/Application/chrome.exe",
+  "workbuddyProfile": null,
+  "workbuddyConfigDir": null,
+  "allowNormalProfile": false,
+  "allowNativeRuntimeRecords": false,
+  "ports": {
+    "workbuddy": 18690,
+    "gpt": 18691,
+    "dashboard": 18692,
+    "normalWorkbuddy": 18693
+  }
+}

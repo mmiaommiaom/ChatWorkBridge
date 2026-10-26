@@ -1,0 +1,20 @@
+name: Source and dependency checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Check JavaScript syntax
+        run: |
+          find src scripts tests -name '*.mjs' -print0 | xargs -0 -n 1 node --check
+      # Windows unit tests use real E-drive paths and must be run locally with npm test.

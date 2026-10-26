@@ -1,0 +1,22 @@
+import fs from 'node:fs';import path from 'node:path';import {randomUUID} from 'node:crypto';import {connectGpt} from '../src/chatgpt-web.mjs';import {connectDesktop,nativeRpc,observeSession,sessionEvents} from '../src/workbuddy-desktop.mjs';
+if(!process.argv.includes('--live'))throw Error('Manual live probe: add --live to generate local TXT/PNG fixtures and ask WorkBuddy to read them.');
+const probeRoot=fs.realpathSync(new URL('..',import.meta.url));if(!/^E:[\\/]/i.test(probeRoot))throw Error('Probe checkout must be on E drive');process.chdir(probeRoot);fs.mkdirSync('data',{recursive:true});
+if(!fs.existsSync('data/capability-bindings.json'))fs.writeFileSync('data/capability-bindings.json','[]\n');
+const journal='data/native-attachments-probe.json';if(fs.existsSync(journal))throw Error('Existing attachment test; reconcile rather than replay');
+const id=randomUUID(),workspace=path.join(process.cwd(),'workspaces/probe','attachments-'+id);fs.mkdirSync(workspace,{recursive:true});
+const imageCode='IMG-'+randomUUID().slice(0,8).toUpperCase(),fileCode='FILE-'+randomUUID().slice(0,8).toUpperCase();const image=path.join(workspace,'visual-reference.png'),file=path.join(workspace,'reference.txt');fs.writeFileSync(file,'Reference code: '+fileCode+'\n');
+const g=await connectGpt();try{const page=await g.browser.contexts()[0].newPage();try{await page.setContent(`<html><body style="margin:0;background:white;font:32px Arial;padding:36px;width:660px"><h1>REFERENCE CARD</h1><p>Code: ${imageCode}</p><svg width="600" height="160"><circle cx="50" cy="70" r="30" fill="red"/><circle cx="125" cy="70" r="30" fill="red"/><circle cx="230" cy="70" r="30" fill="blue"/><circle cx="305" cy="70" r="30" fill="blue"/><circle cx="380" cy="70" r="30" fill="blue"/></svg></body></html>`);await page.locator('body').screenshot({path:image});}finally{await page.close();}}finally{await g.browser.close();}
+const sid=randomUUID(),create={cwd:workspace,sessionId:sid,isPlayground:false,config:{model:'deepseek-v4.1-flash',permissionMode:'default'}};
+const registry=JSON.parse(fs.readFileSync('data/capability-bindings.json'));registry.push({sessionId:sid,workspace,create});fs.writeFileSync('data/capability-bindings.json',JSON.stringify(registry,null,2));
+const report={sessionId:sid,workspace,image,file,expected:{imageCode,fileCode,red:2,blue:3},attempts:[],stage:'creating'};const save=()=>fs.writeFileSync(journal,JSON.stringify(report,null,2));save();
+const {browser,page}=await connectDesktop({mode:'test'});
+async function send(label,blocks){const entry={label,requestId:randomUUID(),stage:'sending',startedAt:new Date().toISOString()};report.attempts.push(entry);save();await observeSession(page,sid);await page.evaluate(()=>{const o=globalThis.__chatWorkObserver;o.events=[];o.bytes=0;o.overflow=false;});try{entry.result=await nativeRpc(page,'session:sendMessage',[sid,blocks,{'codebuddy.ai':{requestId:entry.requestId,messageRequestId:entry.requestId,userMessageId:entry.requestId,emitSyntheticUserPromptLive:true}}],180000);entry.stage='rpc_completed';}catch(e){entry.error=e.message;entry.stage='uncertain';throw e;}finally{entry.events=await sessionEvents(page);entry.finishedAt=new Date().toISOString();save();}console.log(JSON.stringify({label,stopReason:entry.result.stopReason,answer:entry.result?._meta?.['codebuddy.ai']?.lastAssistantText}));return entry;}
+try{
+ if((await nativeRpc(page,'daemon:getActiveSessions',[])).length)throw Error('Another task active');await nativeRpc(page,'session:create',[create],45000);await nativeRpc(page,'session:load',[sid,{cwd:workspace,forceRendererHistoryReplay:true}],45000);
+ const {pathToFileURL}=await import('node:url');
+ const f=await send('resource_link_file',[{type:'text',text:'请实际读取附带文本文件，只回复里面的 Reference code 值。不要修改文件，不运行命令，不读取其他文件。'},{type:'resource_link',uri:pathToFileURL(file).href,name:'reference.txt',mimeType:'text/plain',size:fs.statSync(file).size}]);
+ const i=await send('native_image',[{type:'text',text:'请直接看附图，不读取磁盘或调用工具。返回 JSON，字段 code 为图片上的 Code，red 为红色圆数量，blue 为蓝色圆数量。不要推测。'},{type:'image',mimeType:'image/png',data:fs.readFileSync(image).toString('base64')}]);
+ report.fileVerified=f.result?._meta?.['codebuddy.ai']?.lastAssistantText?.includes(fileCode)===true;
+ report.imageVerified=i.result?._meta?.['codebuddy.ai']?.lastAssistantText?.includes(imageCode)===true;
+ report.stage='completed';save();console.log(JSON.stringify({fileVerified:report.fileVerified,imageVerified:report.imageVerified}));
+}finally{await browser.close();}

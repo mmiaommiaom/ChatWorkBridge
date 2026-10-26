@@ -1,0 +1,8 @@
+{
+  "allowedModels": ["deepseek-v4.1-flash", "hy3", "step-5-preview"],
+  "aliases": {"deepseek-4.1flash": "deepseek-v4.1-flash"},
+  "otherModels": "approval_required",
+  "remainingQuota": "unknown",
+  "exhaustionReset": "unknown",
+  "autoProviderAliases": false
+}

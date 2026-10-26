@@ -1,0 +1,40 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import {randomUUID} from 'node:crypto';
+import {fileURLToPath} from 'node:url';
+import {connectDesktop,nativeRpc,observeSession,sessionEvents} from '../src/workbuddy-desktop.mjs';
+if(!process.argv.includes('--live'))throw Error('Manual live probe: add --live to create a dedicated WorkBuddy session and send one text message.');
+const probeRoot=fs.realpathSync(new URL('..',import.meta.url));if(!/^E:[\\/]/i.test(probeRoot))throw Error('Probe checkout must be on E drive');process.chdir(probeRoot);fs.mkdirSync('data',{recursive:true});fs.mkdirSync('workspaces/probe',{recursive:true});
+const root=fileURLToPath(new URL('..',import.meta.url));
+const bindingFile=path.join(root,'data/desktop-binding.json');
+if(fs.existsSync(bindingFile))throw new Error('P0 binding already exists; inspect prior evidence instead of creating or resending');
+const binding={sessionId:randomUUID(),workspace:path.join(root,'workspaces/probe'),reservedAt:new Date().toISOString(),stage:'reserved'};
+fs.writeFileSync(bindingFile,JSON.stringify(binding,null,2)+'\n');
+const save=()=>fs.writeFileSync(bindingFile,JSON.stringify(binding,null,2)+'\n');
+const {browser,page}=await connectDesktop({mode:'test'});
+try{
+  const initialized=await nativeRpc(page,'workspace:initialize',[{cwd:binding.workspace}],45000);
+  if(initialized?.success!==true)throw new Error('Workspace initialization rejected');
+  binding.stage='creating';save();
+  const created=await nativeRpc(page,'session:create',[{cwd:binding.workspace,sessionId:binding.sessionId,isPlayground:false}],45000);
+  if(created?.sessionId!==binding.sessionId||path.resolve(created.cwd)!==binding.workspace)throw new Error('Session identity mismatch');
+  binding.stage='created';save();
+  await nativeRpc(page,'session:rename',[binding.sessionId,'ChatWorkBridge P0 收发验证']);
+  await nativeRpc(page,'session:updateConfig',[binding.sessionId,{model:'deepseek-v4.1-flash'}],45000);
+  const state=await nativeRpc(page,'session:get',[binding.sessionId]);
+  if((state?.model??state?.config?.model)!=='deepseek-v4.1-flash')throw new Error('Selected desktop model not confirmed');
+  binding.model='deepseek-v4.1-flash';binding.stage='ready';save();
+  await observeSession(page,binding.sessionId);
+  await nativeRpc(page,'session:load',[binding.sessionId,{cwd:binding.workspace,forceRendererHistoryReplay:true}],45000);
+  const nonce='BRIDGE_P0_'+randomUUID().replaceAll('-','');
+  const prompt=`这是聊天桥接收发测试。不要调用任何工具，不要读写文件，不要执行命令。请只回复以下字符串，不要添加其他文字：${nonce}`;
+  binding.stage='sending';binding.requestId=randomUUID();binding.expectedText=nonce;binding.sentAt=new Date().toISOString();save();
+  const result=await nativeRpc(page,'session:sendMessage',[binding.sessionId,[{type:'text',text:prompt}],{'codebuddy.ai':{requestId:binding.requestId,userMessageId:binding.requestId,messageRequestId:binding.requestId,emitSyntheticUserPromptLive:true}}],180000);
+  const events=await sessionEvents(page);
+  fs.writeFileSync(path.join(root,'data/desktop-message-events.json'),JSON.stringify(events,null,2)+'\n');
+  const finished=await nativeRpc(page,'session:get',[binding.sessionId]);
+  const report={checkedAt:new Date().toISOString(),sessionId:binding.sessionId,model:binding.model,requestId:binding.requestId,expectedText:nonce,result,eventCount:events.length,updateKinds:[...new Set(events.map(e=>e.result?.update?.sessionUpdate).filter(Boolean))],state:{status:finished?.status,model:finished?.model??finished?.config?.model,pendingInputKind:finished?.pendingInputKind}};
+  fs.writeFileSync(path.join(root,'data/desktop-message-result.json'),JSON.stringify(report,null,2)+'\n');
+  binding.stage='completed_rpc';save();console.log(JSON.stringify(report,null,2));
+}catch(e){binding.stage='uncertain';binding.error=e.message;save();try{fs.writeFileSync(path.join(root,'data/desktop-message-events.json'),JSON.stringify(await sessionEvents(page),null,2)+'\n');}catch{}throw e;}
+finally{await browser.close();}
