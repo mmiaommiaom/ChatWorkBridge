@@ -5,6 +5,15 @@ import {fileURLToPath, pathToFileURL} from 'node:url';
 export const projectRoot = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const defaultPorts = Object.freeze({workbuddy: 18690, gpt: 18691, dashboard: 18692, normalWorkbuddy: 18693});
 
+export function dataDriveForPath(value) {
+  if (typeof value !== 'string' || !/^[A-Za-z]:[\\/]/.test(value) || value.includes('\0')) {
+    throw configError('数据目录必须是本地磁盘的绝对路径，不能使用相对路径或 UNC 网络路径。');
+  }
+  const drive=value.slice(0,2).toUpperCase();
+  if(drive==='C:')throw configError('数据目录不能位于或链接到 C 盘。');
+  return drive;
+}
+
 function configError(message) {
   const error = new Error(message);
   error.code = 'LOCAL_CONFIG_INVALID';
@@ -31,10 +40,11 @@ function physicalDestination(value) {
   return path.resolve(fs.realpathSync.native(ancestor), ...suffix);
 }
 
-export function assertControlledPath(value, {dataDrive = 'E:', requireDataDrive = true} = {}) {
+export function assertControlledPath(value, {dataDrive = dataDriveForPath(projectRoot), requireDataDrive = true} = {}) {
   const resolved = absoluteWindowsPath(value, '数据目录');
+  if(typeof dataDrive!=='string'||!/^[A-BD-Z]:$/i.test(dataDrive))throw configError('dataDrive 必须是非 C 盘的本地盘符。');
   for (const candidate of [resolved, physicalDestination(resolved)]) {
-    if (/^C:[\\/]/i.test(candidate)) throw configError('数据目录不能位于或链接到 C 盘。');
+    dataDriveForPath(candidate);
     if (requireDataDrive && !candidate.toUpperCase().startsWith(dataDrive.toUpperCase() + path.sep)) {
       throw configError(`桥接程序控制的数据必须保存在 ${dataDrive} 盘。`);
     }
@@ -59,10 +69,10 @@ export function loadConfig({configPath, checkExecutables = false} = {}) {
   try { raw = JSON.parse(fs.readFileSync(source, 'utf8').replace(/^\uFEFF/, '')); }
   catch { throw configError('本机配置不是有效的 JSON，请检查 config/local.json。'); }
   if (!raw || Array.isArray(raw) || typeof raw !== 'object') throw configError('本机配置必须为 JSON 对象。');
-  if (raw.dataDrive !== undefined && String(raw.dataDrive).toUpperCase() !== 'E:') {
-    throw configError('当前发行版按本项目要求只允许 dataDrive 为 E:。');
-  }
-  const dataDrive = 'E:';
+  const inferredDrive=dataDriveForPath(projectRoot);
+  if(raw.dataDrive!==undefined&&(typeof raw.dataDrive!=='string'||!/^[A-BD-Z]:$/i.test(raw.dataDrive)))throw configError('dataDrive 必须是非 C 盘的本地盘符。');
+  const dataDrive=raw.dataDrive===undefined?inferredDrive:raw.dataDrive.toUpperCase();
+  if(dataDrive!==inferredDrive)throw configError('dataDrive 必须与项目所在盘符一致；默认不填写时自动使用项目所在非 C 盘。');
   assertControlledPath(projectRoot, {dataDrive});
   const workbuddyExe = absoluteWindowsPath(raw.workbuddyExe, 'workbuddyExe');
   const chromeExe = absoluteWindowsPath(raw.chromeExe, 'chromeExe');
@@ -89,7 +99,7 @@ export function loadConfig({configPath, checkExecutables = false} = {}) {
   }
   const ports = {...defaultPorts, ...raw.ports};
   for (const [name, port] of Object.entries(ports)) {
-    if (!(name in defaultPorts) || !Number.isInteger(port) || port < 1024 || port > 65535) throw configError(`无效端口配置：${name}。`);
+    if (!Object.hasOwn(defaultPorts,name) || !Number.isInteger(port) || port < 1024 || port > 65535) throw configError(`无效端口配置：${name}。`);
   }
   if (new Set(Object.values(ports)).size !== Object.values(ports).length) throw configError('各服务端口不能相同。');
   const runtimeDir = assertControlledPath(path.join(projectRoot, 'runtime'));

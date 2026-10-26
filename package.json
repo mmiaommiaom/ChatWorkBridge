@@ -1,12 +1,14 @@
 {
   "name": "chat-work-bridge",
-  "version": "0.3.0",
+  "version": "0.4.0-preview.1",
   "private": true,
   "type": "module",
   "description": "Windows ChatGPT web to WorkBuddy desktop bridge with durable task state",
   "license": "MIT",
   "engines": {"node": ">=22.13.0"},
   "scripts": {
+    "start": "node scripts/start.mjs",
+    "initialize": "node scripts/initialize-session.mjs",
     "test": "node --test tests/*.test.mjs",
     "test:unit": "node --test tests/*.test.mjs",
     "config:check": "node scripts/check-config.mjs",

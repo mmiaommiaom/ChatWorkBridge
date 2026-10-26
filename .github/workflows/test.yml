@@ -17,4 +17,4 @@ jobs:
       - name: Check JavaScript syntax
         run: |
           find src scripts tests -name '*.mjs' -print0 | xargs -0 -n 1 node --check
-      # Windows unit tests use real E-drive paths and must be run locally with npm test.
+      # The release workflow runs unit tests on a non-C Windows checkout.

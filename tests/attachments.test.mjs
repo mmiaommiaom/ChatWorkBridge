@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {randomUUID,createHash} from 'node:crypto';
+import {pathToFileURL} from 'node:url';
 import {testDirectory} from './helpers.mjs';
 import {allowedAttachmentUrl,collect,download,nativeBlocks} from '../src/attachments.mjs';
 
@@ -65,7 +66,7 @@ test('download verifies bound turn, deduplicates binary, persists hashes without
   assert.deepEqual(fs.readFileSync(files[1].path),plain);
   const blocks=nativeBlocks(files);
   assert.equal(blocks[0].type,'image');assert.equal(blocks[0].data,png.toString('base64'));assert.equal(blocks[0].mimeType,'image/png');
-  assert.equal(blocks[1].type,'resource_link');assert.ok(blocks[1].uri.startsWith('file:///E:/'));assert.equal(blocks[1]._meta.filePath,files[1].path);
+  assert.equal(blocks[1].type,'resource_link');assert.equal(blocks[1].uri,pathToFileURL(files[1].path).href);assert.equal(blocks[1]._meta.filePath,files[1].path);
   fs.appendFileSync(files[1].path,'changed');
   assert.throws(()=>nativeBlocks(files),/ATTACHMENT_FILE_CHANGED/);
 });
@@ -83,7 +84,9 @@ test('download fails closed for injected URL, excess size, active MIME and misma
   const mismatch=fakePage([image],new Map([[image.url,payload('not a png','image/png')]]));
   await assert.rejects(download(mismatch,[image],options),/ATTACHMENT_CONTENT_MISMATCH/);
   await assert.rejects(download(page,[image],{...options,runId:'../outside'}),/ATTACHMENT_RUN_ID_DENIED/);
-  await assert.rejects(download(page,[image],{...options,root:'C:/must-not-write'}),/ATTACHMENT_ROOT_MUST_BE_E/);
+  await assert.rejects(download(page,[image],{...options,root:'C:/must-not-write'}),/ATTACHMENT_ROOT_DENIED/);
+  await assert.rejects(download(page,[image],{...options,root:'relative-must-not-write'}),/ATTACHMENT_ROOT_DENIED/);
+  await assert.rejects(download(page,[image],{...options,root:'\\\\server\\share\\must-not-write'}),/ATTACHMENT_ROOT_DENIED/);
   await assert.rejects(collect(page),/ATTACHMENT_TURN_REQUIRED/);
 });
 

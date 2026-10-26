@@ -1,7 +1,8 @@
+import {assertControlledPath} from '../src/local-config.mjs';
 import fs from 'node:fs';import path from 'node:path';import {randomUUID} from 'node:crypto';
 import {connectDesktop,nativeRpc,observeSession,sessionEvents} from '../src/workbuddy-desktop.mjs';
 if(!process.argv.includes('--live'))throw Error('Manual live probe: add --live to ask HY3 to edit a newly generated file and Step to run Node --version.');
-const probeRoot=fs.realpathSync(new URL('..',import.meta.url));if(!/^E:[\\/]/i.test(probeRoot))throw Error('Probe checkout must be on E drive');process.chdir(probeRoot);fs.mkdirSync('data',{recursive:true});
+const probeRoot=assertControlledPath(fs.realpathSync(new URL('..',import.meta.url)));process.chdir(probeRoot);fs.mkdirSync('data',{recursive:true});
 if(!fs.existsSync('data/native-file-probe.json'))throw Error('Run test-native-file.mjs --live first in this checkout; no historical file or session is bundled.');
 const journal='data/native-edit-command-probe.json';if(fs.existsSync(journal))throw Error('Existing journal; no blind replay');
 const source=JSON.parse(fs.readFileSync('data/native-file-probe.json'));const report={startedAt:new Date().toISOString(),attempts:[]};const save=()=>fs.writeFileSync(journal,JSON.stringify(report,null,2));save();

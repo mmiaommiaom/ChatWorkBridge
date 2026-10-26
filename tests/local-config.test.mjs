@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {testDirectory} from './helpers.mjs';
-import {loadConfig,assertControlledPath,projectRoot,expectedRendererPrefix} from '../src/local-config.mjs';
+import {loadConfig,assertControlledPath,projectRoot,expectedRendererPrefix,dataDriveForPath} from '../src/local-config.mjs';
 
 const directory=testDirectory('local-config');
-const base={dataDrive:'E:',workbuddyExe:path.join(directory,'SyntheticWorkBuddy.exe'),chromeExe:path.join(directory,'SyntheticChrome.exe')};
+const projectDrive=dataDriveForPath(projectRoot);
+const otherDrive=projectDrive==='D:'?'F:':'D:';
+const base={workbuddyExe:path.join(directory,'SyntheticWorkBuddy.exe'),chromeExe:path.join(directory,'SyntheticChrome.exe')};
 let fixtureNumber=0;
 function fixture(patch={}){
   const file=path.join(directory,'fixture-'+(++fixtureNumber)+'.json');
@@ -22,19 +24,28 @@ test('missing local settings fail with an actionable code without creating the f
   assert.equal(fs.existsSync(configPath),false);
 });
 
-test('controlled project root is on E and other controlled drives are rejected',()=>{
-  assert.match(projectRoot,/^E:[\\/]/i);
+test('controlled data defaults to the checkout drive and mismatching configured drives are rejected',()=>{
+  assert.notEqual(projectDrive,'C:');
+  assert.equal(load({}).dataDrive,projectDrive);
+  assert.equal(load({dataDrive:projectDrive.toLowerCase()}).dataDrive,projectDrive);
   assert.equal(assertControlledPath(directory),directory);
-  assert.throws(()=>assertControlledPath('D:/synthetic-bridge-data'),/E:/);
+  assert.throws(()=>assertControlledPath(otherDrive+'/synthetic-bridge-data'),new RegExp(projectDrive));
   assert.throws(()=>assertControlledPath('relative-data'),/绝对路径/);
-  invalid({dataDrive:'D:'},/dataDrive/);
+  invalid({dataDrive:otherDrive},/dataDrive/);
+  invalid({dataDrive:'C:'},/dataDrive/);
   invalid({workbuddyExe:'relative-app.exe'},/绝对路径/);
 });
 
-test('C data and an E junction whose missing descendants resolve to C are refused',()=>{
+test('non-C Windows drive inference is portable without writing to other drives',()=>{
+  for(const [value,drive] of [['D:/My Apps/测试','D:'],['e:\\Bridge','E:'],['F:/Portable/Bridge','F:']])assert.equal(dataDriveForPath(value),drive);
+  for(const value of ['C:/data','C:\\data','D:relative','relative','\\\\server\\share\\data','/tmp/data'])assert.throws(()=>dataDriveForPath(value));
+  assert.throws(()=>assertControlledPath('\\\\server\\share\\data'),/绝对路径/);
+});
+
+test('C data and a checkout-drive junction whose missing descendants resolve to C are refused',()=>{
   assert.throws(()=>assertControlledPath('C:/synthetic-bridge-data'),/C 盘/);
   invalid({workbuddyProfile:'C:/synthetic-profile'},/C 盘/);
-  // The junction itself is created only inside this test's E directory. Its
+  // The junction itself is created only inside this test's own directory. Its
   // target is inspected read-only; no file or directory is created on C.
   const link=path.join(directory,'c-drive-junction');
   fs.symlinkSync('C:\\',link,'junction');
@@ -69,6 +80,14 @@ test('duplicate, unknown, privileged and non-integer ports are rejected',()=>{
   invalid({ports:{unexpected:21000}},/无效端口/);
 });
 
+test('inherited object names cannot be added as configured service ports',()=>{
+  for(const name of ['constructor','toString','hasOwnProperty','valueOf','__proto__']){
+    const ports=JSON.parse('{"'+name+'":24000}');
+    assert.equal(Object.hasOwn(ports,name),true);
+    invalid({ports},/无效端口/);
+  }
+});
+
 test('valid custom ports and synthetic app/profile paths load without launching applications',()=>{
   const workbuddyProfile=path.join(directory,'custom-profile');
   const workbuddyConfigDir=path.join(workbuddyProfile,'settings');
@@ -84,7 +103,8 @@ test('valid custom ports and synthetic app/profile paths load without launching 
   assert.equal(result.nodeExe,process.execPath);
   assert.equal(Object.isFrozen(result),true);
   assert.equal(Object.isFrozen(result.ports),true);
-  assert.match(expectedRendererPrefix(result),/^file:\/\/\/E:\//i);
+  const expected=new URL('resources/app.asar/renderer/index.html',new URL('./',new URL('file:///'+base.workbuddyExe.replaceAll('\\','/')))).href;
+  assert.equal(expectedRendererPrefix(result),expected);
   assert.equal(fs.existsSync(workbuddyProfile),false);
   assert.equal(fs.existsSync(base.workbuddyExe),false);
 });

@@ -1,7 +1,8 @@
+import {assertControlledPath} from '../src/local-config.mjs';
 import fs from 'node:fs';import assert from 'node:assert/strict';import {connectGpt} from '../src/chatgpt-web.mjs';import {BridgeStore} from '../src/store.mjs';import {fileURLToPath} from 'node:url';
 import {loadConfig} from '../src/local-config.mjs';
 if(!process.argv.includes('--live'))throw Error('Manual live probe: add --live to send a new GPT/WorkBuddy task and test dashboard pause/resume.');
-const probeRoot=fs.realpathSync(new URL('..',import.meta.url));if(!/^E:[\\/]/i.test(probeRoot))throw Error('Probe checkout must be on E drive');process.chdir(probeRoot);fs.mkdirSync('data',{recursive:true});
+const probeRoot=assertControlledPath(fs.realpathSync(new URL('..',import.meta.url)));process.chdir(probeRoot);fs.mkdirSync('data',{recursive:true});
 const evidence=new URL('../data/dashboard-recovery-verification.json',import.meta.url);if(fs.existsSync(evidence))throw Error('Existing live verification; do not replay');
 const {browser}=await connectGpt();const s=new BridgeStore(fileURLToPath(new URL('../data/bridge.sqlite',import.meta.url)));
 try{

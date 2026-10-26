@@ -1,0 +1,77 @@
+name: Build Windows preview release
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'package.json'
+      - '.github/workflows/windows-release.yml'
+permissions:
+  contents: write
+concurrency:
+  group: windows-release
+  cancel-in-progress: false
+jobs:
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prepare non-system build directories
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_WORKSPACE -match '^C:') { throw 'Build requires a non-C workspace' }
+          $toolRoot = Join-Path $env:GITHUB_WORKSPACE 'build/toolchain'
+          New-Item -ItemType Directory -Force $toolRoot | Out-Null
+          $tempRoot = Join-Path $env:GITHUB_WORKSPACE 'build/temp'
+          New-Item -ItemType Directory -Force $tempRoot | Out-Null
+          "TEMP=$tempRoot" | Out-File $env:GITHUB_ENV -Append
+          "TMP=$tempRoot" | Out-File $env:GITHUB_ENV -Append
+          "TOOL_ROOT=$toolRoot" | Out-File $env:GITHUB_ENV -Append
+      - name: Verify Node and NSIS downloads
+        shell: pwsh
+        run: |
+          $nodeZip = Join-Path $env:TOOL_ROOT 'node.zip'
+          Invoke-WebRequest 'https://nodejs.org/download/release/v22.22.2/node-v22.22.2-win-x64.zip' -OutFile $nodeZip
+          if ((Get-FileHash $nodeZip -Algorithm SHA256).Hash -ne '7c93e9d92bf68c07182b471aa187e35ee6cd08ef0f24ab060dfff605fcc1c57c') { throw 'Node SHA256 mismatch' }
+          Expand-Archive $nodeZip -DestinationPath (Join-Path $env:TOOL_ROOT 'node')
+          $nsisZip = Join-Path $env:TOOL_ROOT 'nsis.zip'
+          Invoke-WebRequest 'https://github.com/tauri-apps/binary-releases/releases/download/nsis-3.13/nsis-3.13.zip' -OutFile $nsisZip
+          if ((Get-FileHash $nsisZip -Algorithm SHA256).Hash -ne 'ba63dffc4410ee89193e1cb5a41989991bd77c61068da17e3156d136b7b0b3d8') { throw 'NSIS SHA256 mismatch' }
+          Expand-Archive $nsisZip -DestinationPath (Join-Path $env:TOOL_ROOT 'nsis')
+      - name: Run offline Windows tests
+        shell: pwsh
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm test
+          exit $LASTEXITCODE
+      - name: Build installer and portable archive
+        shell: pwsh
+        run: |
+          ./scripts/build-windows.ps1 -NodeDirectory (Join-Path $env:TOOL_ROOT 'node/node-v22.22.2-win-x64') -MakensisDirectory (Join-Path $env:TOOL_ROOT 'nsis/nsis-3.13') -OutputDirectory (Join-Path $env:GITHUB_WORKSPACE 'dist')
+      - name: Publish preview assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.4.0-preview.1
+          name: ChatWorkBridge 0.4.0 Preview 1
+          prerelease: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/*-setup.exe
+            dist/*-portable.zip
+            dist/SHA256SUMS
+            dist/release-manifest.json
+          body: |
+            Windows x64 experimental preview. Download the setup EXE or portable ZIP; Node is included.
+
+            Install/extract to a local non-C drive, then open START.vbs. The local wizard helps configure Chrome and WorkBuddy, open the apps, connect a dedicated session and open the dashboard.
+
+            Chrome and WorkBuddy International must already be installed. Sign in with your own accounts. No accounts, chat history, runtime profiles or provider credentials are bundled.
+
+            Default mode supports the bounded text collaboration loop and verified attachment formats. Existing-profile mode remains experimental; it is not a claim of arbitrary desktop control. Model pricing and remaining quotas are unknown. See README and docs/STATUS.md.
+
+            The installer is not code-signed. Checksums are supplied in SHA256SUMS. If Windows or an organization blocks execution, stop and verify the source/artifacts; do not disable security protections.

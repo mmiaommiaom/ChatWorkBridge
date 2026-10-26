@@ -1,7 +1,8 @@
+import {assertControlledPath} from '../src/local-config.mjs';
 import fs from 'node:fs';import {randomUUID} from 'node:crypto';
 import {connectDesktop,nativeRpc,observeSession,sessionEvents} from '../src/workbuddy-desktop.mjs';
 if(!process.argv.includes('--live'))throw Error('Manual live probe: add --live only after reviewing this script and authorizing its tool actions.');
-const probeRoot=fs.realpathSync(new URL('..',import.meta.url));if(!/^E:[\\/]/i.test(probeRoot))throw Error('Probe checkout must be on E drive');process.chdir(probeRoot);fs.mkdirSync('data',{recursive:true});
+const probeRoot=assertControlledPath(fs.realpathSync(new URL('..',import.meta.url)));process.chdir(probeRoot);fs.mkdirSync('data',{recursive:true});
 if(!fs.existsSync('data/capability-tools.json'))throw Error('Missing local capability policy. Configure the dedicated test workspace and test MCP before this live probe.');
 if(!fs.existsSync('data/capability-bindings.json'))fs.writeFileSync('data/capability-bindings.json','[]\n');
 const connected=process.argv.includes('--connected');

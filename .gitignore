@@ -6,6 +6,8 @@ artifacts/
 logs/
 coverage/
 work/
+build/
+dist/
 .env
 .env.*
 !.env.example

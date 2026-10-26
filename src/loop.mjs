@@ -23,7 +23,7 @@ export async function runTextLoop(goal,{maxRounds=3,onProgress=()=>{},resumeRunI
     gpt=await connectGpt();desktop=await connectDesktop();
     const context=gpt.browser.contexts()[0];
     const source=context.pages().find(p=>p.url().startsWith('https://chatgpt.com/'));
-    if(!source||(await browserStatus(source)).loginRequired)throw new Error('Log in to ChatGPT in the E-drive test window first');
+    if(!source||(await browserStatus(source)).loginRequired)throw new Error('Log in to ChatGPT in the dedicated browser window first');
     const worker=loadWorkerBinding();
     if(resumeRunId){
       run=unfinished;

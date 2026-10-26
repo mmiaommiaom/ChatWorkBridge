@@ -1,6 +1,7 @@
+import {assertControlledPath} from '../src/local-config.mjs';
 import fs from 'node:fs';import {randomUUID} from 'node:crypto';import {connectGpt,sendGpt,readTurns} from '../src/chatgpt-web.mjs';import {targetId,rememberGptTab} from '../src/gpt-tab.mjs';import {collect} from '../src/attachments.mjs';
 if(!process.argv.includes('--live'))throw Error('Manual live probe: add --live to upload the newly generated local TXT/PNG fixtures and send a GPT message.');
-const probeRoot=fs.realpathSync(new URL('..',import.meta.url));if(!/^E:[\\/]/i.test(probeRoot))throw Error('Probe checkout must be on E drive');process.chdir(probeRoot);fs.mkdirSync('data',{recursive:true});
+const probeRoot=assertControlledPath(fs.realpathSync(new URL('..',import.meta.url)));process.chdir(probeRoot);fs.mkdirSync('data',{recursive:true});
 if(!fs.existsSync('data/native-attachments-probe.json'))throw Error('Run test-native-attachments.mjs --live first in this checkout; no historical fixture files are bundled.');
 const journal='data/gpt-attachment-transfer-probe.json';if(fs.existsSync(journal))throw Error('Existing attempt; do not upload or send again');
 const fixture=JSON.parse(fs.readFileSync('data/native-attachments-probe.json'));const {browser}=await connectGpt();

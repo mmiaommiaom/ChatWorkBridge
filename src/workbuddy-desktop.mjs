@@ -7,7 +7,13 @@ import {loadConfig,expectedRendererPrefix} from './local-config.mjs';
 const root=fileURLToPath(new URL('..',import.meta.url));
 const testWorkspace=path.join(root,'workspaces/probe');
 export function runtimeMode(){const file=path.join(root,'config/active-runtime.json');return fs.existsSync(file)?JSON.parse(fs.readFileSync(file,'utf8')).mode:'test';}
-export function loadWorkerBinding(){return JSON.parse(fs.readFileSync(path.join(root,'data',runtimeMode()==='normal'?'normal-binding.json':'desktop-binding.json'),'utf8'));}
+export function loadWorkerBinding(){
+  const mode=runtimeMode();if(!['test','normal'].includes(mode))throw Error('Unknown runtime mode');
+  const binding=JSON.parse(fs.readFileSync(path.join(root,'data',mode==='normal'?'normal-binding.json':'desktop-binding.json'),'utf8'));
+  const expected=mode==='normal'?path.join(testWorkspace,'normal'):testWorkspace;
+  if(!['ready','completed_rpc'].includes(binding.stage)||typeof binding.sessionId!=='string'||!binding.sessionId||path.resolve(binding.workspace??'')!==expected||(mode==='normal'&&binding.mode!=='normal'))throw Error('Worker session is not initialized or its binding changed; run initialize-session or reconcile prior initialization');
+  return binding;
+}
 export async function connectDesktop({mode=runtimeMode()}={}){
   if(!['test','normal'].includes(mode))throw Error('Unknown runtime mode');
   const state=JSON.parse(fs.readFileSync(new URL(mode==='normal'?'../data/normal-launch.json':'../data/native-launch.json',import.meta.url),'utf8'));
@@ -52,6 +58,7 @@ export async function nativeRpc(page,channel,args=[],timeoutMs=15000){
       if(args.length!==1||args[0]?.cwd!==testWorkspace)throw new Error('Invalid workspace initialization');
     }else if(channel==='session:create'){
       if(args.length!==1||args[0]?.sessionId!==binding.sessionId||args[0]?.cwd!==testWorkspace||args[0]?.isPlayground!==false)throw new Error('Invalid P0 session');
+      if(args[0].config!==undefined){if(Object.keys(args[0].config??{}).length!==1||!args[0].config.model)throw Error('Only an approved model is allowed while initializing');approvedModel(args[0].config.model);}
     }else{
       if(!['session:get','session:load','session:updateConfig','session:sendMessage','session:rename'].includes(channel)||args[0]!==binding.sessionId)throw new Error('P0 native operation outside binding');
       if(channel==='session:updateConfig'){if(Object.keys(args[1]??{}).length!==1)throw Error('Only model patch allowed');approvedModel(args[1].model);}

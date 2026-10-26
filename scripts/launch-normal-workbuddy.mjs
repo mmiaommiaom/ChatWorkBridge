@@ -19,7 +19,7 @@ fs.mkdirSync(assertControlledPath(temp), {recursive: true});
 // Pass paths as environment data rather than constructing executable PowerShell text.
 const query = "Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq $env:WB_BRIDGE_EXECUTABLE -and $_.CommandLine -and $_.CommandLine -notmatch '--type=|--utility-sub-type=' -and $_.CommandLine.IndexOf($env:WB_BRIDGE_PROFILE_APP, [StringComparison]::OrdinalIgnoreCase) -ge 0 } | ForEach-Object { $_.ProcessId }";
 const running = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', query], {
-  encoding: 'utf8', windowsHide: true, timeout: 15000,
+  encoding: 'utf8', windowsHide: false, timeout: 15000,
   env: {...process.env, WB_BRIDGE_EXECUTABLE: exe, WB_BRIDGE_PROFILE_APP: path.join(config, 'app'), TEMP: temp, TMP: temp},
 }).trim();
 if (running) {

@@ -1,6 +1,7 @@
+import {assertControlledPath} from '../src/local-config.mjs';
 import fs from 'node:fs';import path from 'node:path';import {randomUUID} from 'node:crypto';import {connectGpt} from '../src/chatgpt-web.mjs';import {connectDesktop,nativeRpc,observeSession,sessionEvents} from '../src/workbuddy-desktop.mjs';
 if(!process.argv.includes('--live'))throw Error('Manual live probe: add --live to generate local TXT/PNG fixtures and ask WorkBuddy to read them.');
-const probeRoot=fs.realpathSync(new URL('..',import.meta.url));if(!/^E:[\\/]/i.test(probeRoot))throw Error('Probe checkout must be on E drive');process.chdir(probeRoot);fs.mkdirSync('data',{recursive:true});
+const probeRoot=assertControlledPath(fs.realpathSync(new URL('..',import.meta.url)));process.chdir(probeRoot);fs.mkdirSync('data',{recursive:true});
 if(!fs.existsSync('data/capability-bindings.json'))fs.writeFileSync('data/capability-bindings.json','[]\n');
 const journal='data/native-attachments-probe.json';if(fs.existsSync(journal))throw Error('Existing attachment test; reconcile rather than replay');
 const id=randomUUID(),workspace=path.join(process.cwd(),'workspaces/probe','attachments-'+id);fs.mkdirSync(workspace,{recursive:true});

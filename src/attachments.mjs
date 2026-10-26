@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {fileURLToPath,pathToFileURL} from 'node:url';
+import {assertControlledPath} from './local-config.mjs';
 
 const projectRoot=fileURLToPath(new URL('..',import.meta.url));
 const limit=10*1024*1024;
@@ -82,8 +83,7 @@ function checkContent(buffer,mime,name){
 }
 function attachmentDir(root,runId){
   if(!/^[\w-]{1,100}$/.test(runId))throw Error('ATTACHMENT_RUN_ID_DENIED');
-  root=path.resolve(root);
-  if(!/^E:[\\/]/i.test(root))throw Error('ATTACHMENT_ROOT_MUST_BE_E');
+  try{root=assertControlledPath(root);}catch{throw Error('ATTACHMENT_ROOT_DENIED');}
   for(const part of [root,path.join(root,'artifacts'),path.join(root,'artifacts',runId),path.join(root,'artifacts',runId,'attachments')]){
     if(fs.existsSync(part)){if(fs.lstatSync(part).isSymbolicLink()||path.resolve(fs.realpathSync(part)).toLowerCase()!==part.toLowerCase())throw Error('ATTACHMENT_PATH_LINK_DENIED');}
     else fs.mkdirSync(part);
@@ -141,8 +141,9 @@ export async function download(page,candidates,{runId,root=projectRoot,maxBytes=
 export function nativeBlocks(files){
   if(!Array.isArray(files)||files.length>20)throw Error('ATTACHMENT_COUNT_DENIED');
   return files.map(file=>{
-    const resolved=path.resolve(file.path);
-    if(!/^E:[\\/]/i.test(resolved)||fs.lstatSync(resolved).isSymbolicLink())throw Error('ATTACHMENT_FILE_DENIED');
+    let resolved;
+    try{resolved=assertControlledPath(file.path);}catch{throw Error('ATTACHMENT_FILE_DENIED');}
+    if(fs.lstatSync(resolved).isSymbolicLink())throw Error('ATTACHMENT_FILE_DENIED');
     const bytes=fs.readFileSync(resolved);
     if(bytes.length>limit||bytes.length!==file.size||sha(bytes)!==file.sha256)throw Error('ATTACHMENT_FILE_CHANGED');
     const checked=checkContent(bytes,file.mimeType,file.name);

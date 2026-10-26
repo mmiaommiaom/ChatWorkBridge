@@ -4,12 +4,12 @@ import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
+import {assertControlledPath} from '../src/local-config.mjs';
 
 // Manual transport probe: starts only this repository's MCP process.
 // No model messages, browser actions or arbitrary shell commands are sent.
 if(!process.argv.includes('--live'))throw Error('Manual transport probe: add --live to start a local MCP child process. No model is called.');
-const root=fs.realpathSync(new URL('..',import.meta.url));
-if(!/^E:[\\/]/i.test(root))throw Error('Probe checkout must be on E drive');
+const root=assertControlledPath(fs.realpathSync(new URL('..',import.meta.url)));
 const workspace=path.join(root,'runtime','test-runs','mcp-boundary-'+randomUUID());
 fs.mkdirSync(workspace,{recursive:true});fs.mkdirSync(path.join(root,'data'),{recursive:true});
 const configFile=path.join(workspace,'policy.json');

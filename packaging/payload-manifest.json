@@ -1,0 +1,20 @@
+{
+  "files": [
+    "START.cmd", "START.vbs", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md",
+    "package.json", "package-lock.json", ".npmrc",
+    "config/local.example.json", "config/model-policy.json",
+    "docs/SETUP.md", "docs/STATUS.md", "docs/RELEASE.md",
+    "src/app-discovery.mjs", "src/attachments.mjs", "src/capability-tools.mjs",
+    "src/chatgpt-web.mjs", "src/gpt-tab.mjs", "src/initialize-session.mjs",
+    "src/local-config.mjs", "src/loop.mjs", "src/model-policy.mjs",
+    "src/model-router.mjs", "src/onboarding.mjs", "src/protocol.mjs",
+    "src/reconcile-gpt.mjs", "src/store.mjs", "src/workbuddy-desktop.mjs",
+    "scripts/activate-normal-workbuddy.mjs", "scripts/browser-status.mjs",
+    "scripts/capability-mcp.mjs", "scripts/check-config.mjs", "scripts/dashboard.mjs",
+    "scripts/initialize-session.mjs", "scripts/launch-gpt-browser.mjs",
+    "scripts/launch-normal-workbuddy.mjs", "scripts/launch-workbuddy.mjs",
+    "scripts/open-apps.mjs", "scripts/preflight.mjs", "scripts/probe-desktop.mjs",
+    "scripts/run-text-loop.mjs", "scripts/start.mjs",
+    "ui/dashboard.html", "ui/setup.html"
+  ]
+}

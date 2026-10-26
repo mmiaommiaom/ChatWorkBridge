@@ -2,10 +2,11 @@ import {DatabaseSync} from 'node:sqlite';
 import {randomUUID,createHash} from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import {assertControlledPath} from './local-config.mjs';
 export const hash=value=>createHash('sha256').update(typeof value==='string'?value:JSON.stringify(value)).digest('hex');
 export class BridgeStore{
   constructor(file){
-    const resolved=path.resolve(file);if(!/^E:[\\/]/i.test(resolved))throw new Error('Store must stay on E drive');
+    const resolved=assertControlledPath(file);
     fs.mkdirSync(path.dirname(resolved),{recursive:true});this.db=new DatabaseSync(resolved);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY,state TEXT NOT NULL,data TEXT NOT NULL);

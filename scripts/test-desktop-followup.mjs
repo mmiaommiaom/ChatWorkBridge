@@ -1,7 +1,8 @@
+import {assertControlledPath} from '../src/local-config.mjs';
 import fs from 'node:fs';
 import {connectDesktop,nativeRpc,observeSession,sessionEvents} from '../src/workbuddy-desktop.mjs';
 if(!process.argv.includes('--live'))throw Error('Manual live probe: add --live to send a follow-up in the dedicated test session.');
-const probeRoot=fs.realpathSync(new URL('..',import.meta.url));if(!/^E:[\\/]/i.test(probeRoot))throw Error('Probe checkout must be on E drive');process.chdir(probeRoot);fs.mkdirSync('data',{recursive:true});
+const probeRoot=assertControlledPath(fs.realpathSync(new URL('..',import.meta.url)));process.chdir(probeRoot);fs.mkdirSync('data',{recursive:true});
 if(!fs.existsSync('data/desktop-binding.json'))throw Error('Run test-desktop-message.mjs --live first in this checkout; no historical evidence is bundled.');
 const binding=JSON.parse(fs.readFileSync(new URL('../data/desktop-binding.json',import.meta.url),'utf8'));
 if(typeof binding.expectedText!=='string'||!binding.expectedText.startsWith('BRIDGE_P0_'))throw Error('Existing binding is not the first-message probe; do not send a follow-up to another conversation.');
