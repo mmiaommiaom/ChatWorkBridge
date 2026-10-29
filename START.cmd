@@ -22,6 +22,9 @@ if not exist "%TEMP%" mkdir "%TEMP%"
 if not exist "%BRIDGE_ROOT%logs" mkdir "%BRIDGE_ROOT%logs"
 cd /d "%BRIDGE_ROOT%"
 echo Starting ChatWorkBridge. Log: %BRIDGE_ROOT%logs\start.log
+if defined WB_BRIDGE_SETUP_PORT (echo Requested setup port: %WB_BRIDGE_SETUP_PORT%) else (echo Default setup port: 18694. An occupied port is skipped automatically.)
+echo The current address is saved in data\setup-launch.json and logs\start.log.
+echo Keep this window open while using the setup page.
 "%BRIDGE_NODE%" "%BRIDGE_ROOT%scripts\start.mjs" >> "%BRIDGE_ROOT%logs\start.log" 2>&1
 set "BRIDGE_EXIT=%ERRORLEVEL%"
 if not "%BRIDGE_EXIT%"=="0" (

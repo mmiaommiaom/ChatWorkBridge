@@ -7,6 +7,13 @@ import {loadConfig, assertControlledPath} from '../src/local-config.mjs';
 const local = loadConfig({checkExecutables: true});
 if (!local.allowNativeRuntimeRecords) throw new Error('请先确认 WorkBuddy 自身可能产生的原生系统运行记录，再在本机配置中设置 allowNativeRuntimeRecords=true。');
 const {projectRoot: root, workbuddyExe: exe, testProfile: profile, testConfigDir: config, tempDir: temp, workspace} = local;
+const stateFile=assertControlledPath(path.join(root,'data/native-launch.json'));
+if(fs.existsSync(stateFile)){
+  const prior=JSON.parse(fs.readFileSync(stateFile,'utf8'));
+  let alive=false;
+  if(!prior.exitedAt&&Number.isInteger(prior.pid)&&prior.pid>0){try{process.kill(prior.pid,0);alive=true;}catch{}}
+  if(alive)throw Error('独立 WorkBuddy 仍在运行，但连接接口尚未就绪。请查看已有窗口或正常退出后重试，不会重复启动。');
+}
 for (const dir of [profile, config, temp, workspace, path.join(root, 'logs'), path.join(root, 'data'), path.join(profile, 'AppData/Roaming'), path.join(profile, 'AppData/Local'), path.join(profile, 'ProgramData')]) {
   fs.mkdirSync(assertControlledPath(dir), {recursive: true});
 }
@@ -35,11 +42,11 @@ const child = spawn(exe, ['--user-data-dir=' + path.join(config, 'app'), '--remo
 fs.closeSync(fd);
 child.once('error', error => { console.error(error.message); process.exitCode = 1; });
 const state = {startedAt: new Date().toISOString(), exe, pid: child.pid, port, profile, workspace, logfile, scope: 'Dedicated test profile; no daily profile or credential copying'};
-const stateFile = path.join(root, 'data/native-launch.json');
 if (child.pid) {
   fs.writeFileSync(stateFile, JSON.stringify(state, null, 2) + '\n');
   console.log('测试 WorkBuddy 已打开。请在它自己的窗口中登录。');
 }
 child.once('exit', (code, signal) => {
-  fs.writeFileSync(stateFile, JSON.stringify({...state, exitedAt: new Date().toISOString(), code, signal}, null, 2) + '\n');
+  let current;try{current=JSON.parse(fs.readFileSync(stateFile,'utf8'));}catch{}
+  if(current?.pid===child.pid)fs.writeFileSync(stateFile, JSON.stringify({...state, exitedAt: new Date().toISOString(), code, signal}, null, 2) + '\n');
 });

@@ -6,6 +6,7 @@ import {randomUUID,createHash} from 'node:crypto';
 import {pathToFileURL} from 'node:url';
 import {testDirectory} from './helpers.mjs';
 import {allowedAttachmentUrl,collect,download,nativeBlocks} from '../src/attachments.mjs';
+import {assessFixtureAnswers} from '../scripts/test-native-attachments.mjs';
 
 const root=testDirectory('attachments');
 const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a1ioAAAAASUVORK5CYII=','base64');
@@ -129,4 +130,50 @@ test('same-origin and blob attachment reads retain browser authentication',async
       assert.equal((await download(page,[image],{root,runId:'test-attachment-auth-'+randomUUID()})).length,1);
     }
   }finally{globalThis.fetch=original;}
+});
+
+test('attachment type fallback rejects fake extensions, invalid JSON, truncated Office archives and text masquerading as an image',async()=>{
+  for(const [name,kind,data,mime] of [
+    ['fake.png','image','not an image','application/octet-stream'],
+    ['fake.json','file','not json','application/json'],
+    ['fake.docx','file',Buffer.from([80,75,3,4]),'application/octet-stream'],
+    ['fake.png','image','server returned an error','text/plain']
+  ]){
+    const item=candidate('https://files.oaiusercontent.com/fixture',name,kind);
+    const page=fakePage([item],new Map([[item.url,payload(data,mime)]]));
+    await assert.rejects(download(page,[item],{root,runId:'mime-'+randomUUID()}),/ATTACHMENT_CONTENT_MISMATCH/);
+  }
+});
+
+test('attachment storage refuses a redirected output directory and native reads refuse ancestor links',async()=>{
+  const owner=testDirectory('attachment-links'),outside=path.join(owner,'physical');fs.mkdirSync(outside);
+  const alias=path.join(owner,'alias');fs.symlinkSync(outside,alias,'junction');
+  const item=candidate('https://files.oaiusercontent.com/fixture.png');
+  const page=fakePage([item],new Map([[item.url,payload(png,'image/png')]]));
+  await assert.rejects(download(page,[item],{root:alias,runId:'blocked'}),/ATTACHMENT_PATH_LINK_DENIED/);
+  await assert.rejects(download(page,[item],{root:path.join(alias,'new-root'),runId:'blocked-new'}),/ATTACHMENT_PATH_LINK_DENIED/);
+  assert.equal(fs.existsSync(path.join(outside,'new-root')),false);
+  fs.writeFileSync(path.join(outside,'image.png'),png);
+  const record={path:path.join(alias,'image.png'),size:png.length,sha256:createHash('sha256').update(png).digest('hex'),name:'image.png',mimeType:'image/png'};
+  assert.throws(()=>nativeBlocks([record]),/ATTACHMENT_FILE_DENIED/);
+  assert.equal(fs.existsSync(path.join(outside,'artifacts')),false);
+});
+
+test('native attachment reads refuse hard links and inspect size before reading content',()=>{
+  const owner=testDirectory('attachment-files'),original=path.join(owner,'original.png'),linked=path.join(owner,'linked.png');
+  fs.writeFileSync(original,png);fs.linkSync(original,linked);
+  const record={path:linked,size:png.length,sha256:createHash('sha256').update(png).digest('hex'),name:'linked.png',mimeType:'image/png'};
+  assert.throws(()=>nativeBlocks([record]),/ATTACHMENT_FILE_DENIED/);
+  const oversized=path.join(owner,'oversized.png');fs.writeFileSync(oversized,'small');fs.truncateSync(oversized,10*1024*1024+1);
+  assert.throws(()=>nativeBlocks([{...record,path:oversized}]),/ATTACHMENT_FILE_CHANGED/);
+});
+
+test('manual image probe requires code and real shape counts rather than code text alone',()=>{
+  const expected={fileCode:'FILE-8BA10',imageCode:'IMG-92CA1',red:2,blue:3};
+  for(const imageText of [expected.imageCode,JSON.stringify({code:expected.imageCode,red:3,blue:2}),JSON.stringify({code:'wrong',red:2,blue:3}),JSON.stringify({code:expected.imageCode,red:'2',blue:'3'})]){
+    assert.equal(assessFixtureAnswers({fileText:expected.fileCode,imageText},expected).imageVerified,false);
+  }
+  const valid=assessFixtureAnswers({fileText:expected.fileCode+'\n',imageText:'```json\n'+JSON.stringify({code:expected.imageCode,red:2,blue:3})+'\n```'},expected);
+  assert.equal(valid.imageVerified,true);assert.equal(valid.fileVerified,true);
+  assert.equal(assessFixtureAnswers({fileText:'Cannot verify '+expected.fileCode,imageText:'{}'},expected).fileVerified,false);
 });

@@ -1,6 +1,7 @@
 {
-  "workbuddyExe": "E:/Apps/WorkBuddy/WorkBuddyAI.exe",
-  "chromeExe": "E:/Apps/Chrome/Application/chrome.exe",
+  "workbuddyExe": "",
+  "chromeExe": "",
+  "workbuddyMode": "test",
   "workbuddyProfile": null,
   "workbuddyConfigDir": null,
   "allowNormalProfile": false,

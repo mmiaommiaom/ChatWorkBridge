@@ -17,4 +17,25 @@ jobs:
       - name: Check JavaScript syntax
         run: |
           find src scripts tests -name '*.mjs' -print0 | xargs -0 -n 1 node --check
-      # The release workflow runs unit tests on a non-C Windows checkout.
+  windows-tests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.2'
+      - name: Prepare non-C test directories
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_WORKSPACE -match '^C:') { throw 'Tests require a non-C workspace' }
+          $testTemp = Join-Path $env:GITHUB_WORKSPACE 'runtime/ci-temp'
+          New-Item -ItemType Directory -Force $testTemp | Out-Null
+          "TEMP=$testTemp" | Out-File $env:GITHUB_ENV -Append
+          "TMP=$testTemp" | Out-File $env:GITHUB_ENV -Append
+      - name: Install locked dependencies and run offline tests
+        shell: pwsh
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm test
+          exit $LASTEXITCODE

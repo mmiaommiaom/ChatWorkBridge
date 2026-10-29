@@ -42,6 +42,22 @@ function Test-Rejected([string]$Label,[string]$Target) {
 }
 try {
   $env:TEMP=$temp;$env:TMP=$temp
+  foreach ($label in @('new-directory','existing-empty-directory','empty-directory-with-spaces')) {
+    $target=Join-Path $sandbox $label
+    if ($label -eq 'empty-directory-with-spaces') { $target=Join-Path $sandbox 'empty directory with spaces' }
+    if ($label -ne 'new-directory') { New-Item -ItemType Directory -Path $target | Out-Null }
+    $process=Start-Process -FilePath $installerPath -ArgumentList ('/S /D='+$target) -Wait -PassThru
+    if ($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath (Join-Path $target 'START.cmd'))) { throw "Expected successful installation for $label. Artifacts retained at $sandbox" }
+    $results+=[pscustomobject]@{label=$label;installed=$true;exitCode=$process.ExitCode}
+  }
+  $hidden=Join-Path $sandbox 'hidden-file-only'
+  New-Item -ItemType Directory -Path $hidden | Out-Null
+  $hiddenSentinel=Join-Path $hidden 'keep.txt'
+  [IO.File]::WriteAllText($hiddenSentinel,'Keep this hidden file unchanged.')
+  [IO.File]::SetAttributes($hiddenSentinel,[IO.FileAttributes]::Hidden)
+  $hiddenHash=(Get-FileHash -LiteralPath $hiddenSentinel -Algorithm SHA256).Hash
+  $results+=Test-Rejected 'hidden-file-directory-preserved' $hidden
+  if ((Get-FileHash -LiteralPath $hiddenSentinel -Algorithm SHA256).Hash -ne $hiddenHash -or @(Get-ChildItem -LiteralPath $hidden -Force).Count -ne 1) { throw 'Hidden-file directory was modified.' }
   $characters=@("'",'"','`','$','%',"`r","`n",';','&','|','<','>','(',')','{','}')
   for ($index=0;$index -lt $characters.Count;$index++) {
     $target=Join-Path $sandbox ('forbidden-'+$index+'-'+$characters[$index]+'-target')
@@ -81,6 +97,6 @@ try {
   }
   $report=Join-Path $sandbox 'rejection-results.json'
   [IO.File]::WriteAllText($report,($results | ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
-  Write-Host ("Passed {0} explicit installer rejection probes. No application was launched. Report: {1}" -f $results.Count,$report)
+  Write-Host ("Passed {0} explicit installer directory probes. No Chrome, WorkBuddy or model was launched. Report: {1}" -f $results.Count,$report)
 }
 finally { $env:TEMP=$oldTemp;$env:TMP=$oldTmp }

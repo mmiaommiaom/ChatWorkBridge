@@ -18,7 +18,7 @@ VIAddVersionKey "FileDescription" "ChatWorkBridge offline Windows installer"
 VIAddVersionKey "FileVersion" "${PRODUCT_VERSION}"
 VIAddVersionKey "LegalCopyright" "Copyright 2026 ChatWorkBridge contributors"
 LicenseData "${PAYLOAD_DIR}\LICENSE"
-DirText "Choose a NEW directory on a local non-C drive. Existing directories are never overwritten. Chrome and WorkBuddy are not included."
+DirText "Choose an EMPTY directory on a local non-C drive, or enter a new directory name. Folders containing files are refused. Chrome and WorkBuddy are not included."
 Page license
 Page directory
 Page instfiles
@@ -83,17 +83,24 @@ Function ValidateDestination
   checked:
     ; No destination is inserted into the body of this fixed PowerShell code.
     ; The script only reads paths and attributes, rejecting every reparse-point
-    ; ancestor, missing drive, existing target, C drive and UNC path.
+    ; ancestor, missing drive, nonempty target, C drive and UNC path.
     ClearErrors
-    ExecWait `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -Command "& {param([string]$$p) try{$$p=[IO.Path]::GetFullPath($$p);if($$p-notmatch'^[A-BD-Za-bd-z]:\\[^:]+$$'-or!(Test-Path -LiteralPath ([IO.Path]::GetPathRoot($$p)))-or(Test-Path -LiteralPath $$p)){exit 21};$$q=$$p;while($$q){if(Test-Path -LiteralPath $$q){if((Get-Item -LiteralPath $$q -Force -ErrorAction Stop).Attributes-band[IO.FileAttributes]::ReparsePoint){exit 22}};$$q=[IO.Path]::GetDirectoryName($$q)};exit 0}catch{exit 23}} '$INSTDIR'"` $0
-    IfErrors invalid
-    StrCmp $0 "0" 0 invalid
-    IfFileExists "$INSTDIR" invalid
-    IfFileExists "$INSTDIR\*.*" invalid
+    ExecWait `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -Command "& {param([string]$$p) try{$$p=[IO.Path]::GetFullPath($$p);if($$p-notmatch'^[A-BD-Za-bd-z]:\\[^:]+$$'-or!(Test-Path -LiteralPath ([IO.Path]::GetPathRoot($$p)))){exit 21};$$q=$$p;while($$q){if(Test-Path -LiteralPath $$q){if((Get-Item -LiteralPath $$q -Force -ErrorAction Stop).Attributes-band[IO.FileAttributes]::ReparsePoint){exit 22}};$$q=[IO.Path]::GetDirectoryName($$q)};if(Test-Path -LiteralPath $$p){if(![IO.Directory]::Exists($$p)-or[IO.Directory]::GetFileSystemEntries($$p).Length-ne 0){exit 24}};exit 0}catch{exit 23}} '$INSTDIR'"` $0
+    IfErrors validation_failed
+    StrCmp $0 "24" occupied
+    StrCmp $0 "0" 0 validation_failed
     Return
+  occupied:
+    SetErrorLevel 2
+    MessageBox MB_OK|MB_ICONSTOP "This directory contains files (including hidden files), or is a file. Choose an empty directory or enter a new directory name. Existing files have not been changed." /SD IDOK
+    Quit
+  validation_failed:
+    SetErrorLevel 2
+    MessageBox MB_OK|MB_ICONSTOP "Directory validation did not succeed. Read-only PowerShell check returned $0. Check security-software logs if it blocked the check; do not disable protection. No files were extracted." /SD IDOK
+    Quit
   invalid:
     SetErrorLevel 2
-    MessageBox MB_OK|MB_ICONSTOP "Installation stopped. Select a NEW local directory outside C:, without links, quotes or command characters (maximum 180 characters). Your existing files have not been changed." /SD IDOK
+    MessageBox MB_OK|MB_ICONSTOP "Installation stopped. Select an EMPTY local directory outside C:, without links, quotes or command characters (maximum 180 characters), or enter a new directory name. Your existing files have not been changed." /SD IDOK
     Quit
 FunctionEnd
 

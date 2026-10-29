@@ -1,5 +1,19 @@
 import {assertControlledPath} from '../src/local-config.mjs';
-import fs from 'node:fs';import path from 'node:path';import {randomUUID} from 'node:crypto';import {connectGpt} from '../src/chatgpt-web.mjs';import {connectDesktop,nativeRpc,observeSession,sessionEvents} from '../src/workbuddy-desktop.mjs';
+import fs from 'node:fs';import path from 'node:path';import {fileURLToPath} from 'node:url';import {randomUUID} from 'node:crypto';import {connectGpt} from '../src/chatgpt-web.mjs';import {connectDesktop,nativeRpc,observeSession,sessionEvents} from '../src/workbuddy-desktop.mjs';
+
+// OCR of the reference code alone does not establish recognition of the shapes.
+export function assessFixtureAnswers({fileText,imageText},expected){
+ let answer=null;
+ if(typeof imageText==='string'){
+  const trimmed=imageText.trim(),fenced=trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i);
+  try{answer=JSON.parse(fenced?fenced[1]:trimmed);}catch{}
+ }
+ const imageCodeVerified=answer?.code===expected.imageCode;
+ const imageCountsVerified=answer?.red===expected.red&&answer?.blue===expected.blue;
+ return {fileVerified:typeof fileText==='string'&&fileText.trim()===expected.fileCode,imageCodeVerified,imageCountsVerified,imageVerified:imageCodeVerified&&imageCountsVerified,verificationScope:'Response content matched against fixture; no independent tool-usage verification.'};
+}
+
+async function main(){
 if(!process.argv.includes('--live'))throw Error('Manual live probe: add --live to generate local TXT/PNG fixtures and ask WorkBuddy to read them.');
 const probeRoot=assertControlledPath(fs.realpathSync(new URL('..',import.meta.url)));process.chdir(probeRoot);fs.mkdirSync('data',{recursive:true});
 if(!fs.existsSync('data/capability-bindings.json'))fs.writeFileSync('data/capability-bindings.json','[]\n');
@@ -17,7 +31,10 @@ try{
  const {pathToFileURL}=await import('node:url');
  const f=await send('resource_link_file',[{type:'text',text:'请实际读取附带文本文件，只回复里面的 Reference code 值。不要修改文件，不运行命令，不读取其他文件。'},{type:'resource_link',uri:pathToFileURL(file).href,name:'reference.txt',mimeType:'text/plain',size:fs.statSync(file).size}]);
  const i=await send('native_image',[{type:'text',text:'请直接看附图，不读取磁盘或调用工具。返回 JSON，字段 code 为图片上的 Code，red 为红色圆数量，blue 为蓝色圆数量。不要推测。'},{type:'image',mimeType:'image/png',data:fs.readFileSync(image).toString('base64')}]);
- report.fileVerified=f.result?._meta?.['codebuddy.ai']?.lastAssistantText?.includes(fileCode)===true;
- report.imageVerified=i.result?._meta?.['codebuddy.ai']?.lastAssistantText?.includes(imageCode)===true;
- report.stage='completed';save();console.log(JSON.stringify({fileVerified:report.fileVerified,imageVerified:report.imageVerified}));
+ Object.assign(report,assessFixtureAnswers({fileText:f.result?._meta?.['codebuddy.ai']?.lastAssistantText,imageText:i.result?._meta?.['codebuddy.ai']?.lastAssistantText},report.expected));
+ report.stage=report.fileVerified&&report.imageVerified?'completed':'verification_failed';save();console.log(JSON.stringify({fileVerified:report.fileVerified,imageCodeVerified:report.imageCodeVerified,imageCountsVerified:report.imageCountsVerified,imageVerified:report.imageVerified}));
+ if(report.stage!=='completed')process.exitCode=1;
 }finally{await browser.close();}
+}
+
+if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url))await main();

@@ -65,6 +65,33 @@ test('create timeout persists uncertainty and repeated initialization never crea
   assert.equal(f.closed,2);
 });
 
+test('reconnect preserves an approved fallback model without resetting configuration',async()=>{
+  const f=fixture('fallback');
+  const first=await initializeSession(f);
+  const original=fs.readFileSync(f.bindingFile,'utf8');
+  const before=f.calls.length;
+  const rpc=async(page,channel,args)=>{
+    const result=await f.rpc(page,channel,args);
+    return channel==='session:get'?{...result,model:'hy3'}:result;
+  };
+  const result=await initializeSession({...f,rpc});
+  assert.equal(result.model,'hy3');
+  assert.equal(result.sessionId,first.sessionId);
+  assert.equal(fs.readFileSync(f.bindingFile,'utf8'),original);
+  assert.deepEqual(f.calls.slice(before).map(call=>call.channel),['daemon:getActiveSessions','session:get']);
+});
+
+test('uncertain local tasks block reconnection before any remote calls',async()=>{
+  const f=fixture('paused-local-task');
+  fs.mkdirSync(path.join(f.projectDir,'data'),{recursive:true});
+  const store=new BridgeStore(path.join(f.projectDir,'data/bridge.sqlite'));
+  try{const run=store.create('Synthetic uncertain task');store.update(run.id,'uncertain');}
+  finally{store.close();}
+  await assert.rejects(initializeSession({...f,connect:async()=>{throw Error('Must not connect');}}),/尚未结束/);
+  assert.equal(f.calls.length,0);
+  assert.equal(fs.existsSync(f.bindingFile),false);
+});
+
 test('mismatched remote directory or model fails initialization and is never marked ready',async()=>{
   for(const kind of ['directory','model']){
     const f=fixture('wrong-'+kind,{onGet(session){return{...session,...(kind==='directory'?{cwd:path.join(session.cwd,'another-workspace')}:{model:'hy3'})};}});

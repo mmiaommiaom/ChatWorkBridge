@@ -15,6 +15,15 @@ test('simulated quota exhaustion skips model without calling paid models',async(
 test('uncertain or side-effecting failures never trigger automatic replay',async()=>{
  let calls=0;await assert.rejects(routeApprovedTask(async()=>{calls++;throw new Error('quota exhausted');}),/quota/);assert.equal(calls,1);
 });
+test('saving accepted output never triggers another model even if disk error resembles quota',async()=>{
+ let calls=0;const localError=Object.assign(new Error('quota exhausted while saving state'),{safeToRetry:true});
+ await assert.rejects(routeApprovedTask(async()=>{calls++;return {text:'already executed'};},{persist:()=>{throw localError;}}),error=>error===localError);
+ assert.equal(calls,1);
+});
+test('result model mismatch is never retried or counted as a verified success',async()=>{
+ let calls=0;const states={};await assert.rejects(routeApprovedTask(async()=>{calls++;return {text:'wrong model',model:'paid-model'};},{states}),/different from the approved/);
+ assert.equal(calls,1);assert.deepEqual(states,{});
+});
 test('synthetic Step 500 fixture is a service error, not quota exhaustion',()=>{
  // Synthetic protocol fixture, not a captured provider response or live test.
  const result={_meta:{'codebuddy.ai/outcome':'FAILED_MODEL_REQUEST','codebuddy.ai/errorMessage':JSON.stringify({message:'Synthetic provider failure',data:{statusCode:500,code:'internal_server_error',details:'Synthetic service unavailable'}})}};

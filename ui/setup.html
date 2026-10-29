@@ -6,24 +6,26 @@
 <style>
 :root{color-scheme:light;font-family:system-ui,"Microsoft YaHei",sans-serif;background:#f4f6f9;color:#17253a}body{margin:0;padding:32px 18px}main{max-width:880px;margin:auto}header{margin-bottom:24px}h1{font-size:29px;margin:0 0 10px}h2{font-size:19px;margin:0 0 16px}p{line-height:1.7}section{background:white;border:1px solid #d9e0ea;border-radius:12px;padding:24px;margin:16px 0}.hint{font-size:14px;color:#526279}.paths{display:grid;gap:14px}label{display:block;font-weight:600;font-size:14px}input[type=text]{box-sizing:border-box;width:100%;padding:11px 12px;margin-top:7px;border:1px solid #aebbd0;border-radius:6px;font:inherit;background:#fff;color:inherit}input:focus{outline:2px solid #4084db;outline-offset:1px}.check{font-weight:400;display:flex;gap:9px;align-items:flex-start;margin:15px 0;line-height:1.6}.check input{margin-top:5px;flex:0 0 auto}button{border:1px solid #1d5eb9;background:#1d5eb9;color:white;border-radius:7px;padding:11px 16px;font:inherit;cursor:pointer}button.secondary{background:white;color:#1d5eb9}button:disabled{opacity:.5;cursor:wait}.actions{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.step{border:1px solid #d9e0ea;border-radius:8px;padding:17px}.step p{font-size:14px;margin:12px 0 0}.step button{width:100%}.toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.message{white-space:pre-wrap;overflow-wrap:anywhere;padding:16px;border-radius:8px;background:#eef3fb;line-height:1.65;min-height:30px}.message.error{background:#fff0ed;color:#8c2c19}.message.success{background:#edf8f1;color:#1c6038}details{margin-top:18px}summary{cursor:pointer;font-weight:600}code{font-family:Consolas,monospace;overflow-wrap:anywhere}.badge{display:inline-block;background:#e7effb;color:#1d5eb9;border-radius:4px;padding:4px 8px;font-size:13px}a{color:#1d5eb9}@media(max-width:700px){body{padding:20px 12px}section{padding:18px}.actions{grid-template-columns:1fr}h1{font-size:24px}}
 </style>
+<style>select{display:block;box-sizing:border-box;width:100%;margin-top:7px;padding:11px 12px;border:1px solid #aebbd0;border-radius:6px;background:white;color:inherit;font:inherit}select:focus{outline:2px solid #4084db;outline-offset:1px}.path-select{display:flex;align-items:center;gap:8px}.path-select input{flex:1;min-width:0}.path-select button{flex:none;margin-top:7px}</style>
 </head>
 <body><main>
-<header><span class="badge">Windows · 独立测试模式</span><h1>连接 ChatGPT 与 WorkBuddy</h1><p>保存路径，打开两边并登录，再连接专用会话。这里只做配置和连接；点击协作台的“开始”才会提交任务。</p></header>
+<header><span class="badge" id="modeBadge">Windows · 首次配置</span><h1>连接 ChatGPT 与 WorkBuddy</h1><p>选择 WorkBuddy 模式，保存路径，打开两边并登录，再连接专用会话。点击协作台的“开始”才会提交任务。</p></header>
 <section><h2>1. 保存本机配置</h2><p id="root" class="hint">正在读取本机配置…</p>
 <form id="settings"><div class="paths">
-<label>Chrome 程序完整路径<input id="chromeExe" type="text" list="chromeCandidates" autocomplete="off" placeholder="例如 E:\Apps\Chrome\Application\chrome.exe" required><datalist id="chromeCandidates"></datalist></label>
-<label>WorkBuddy 程序完整路径<input id="workbuddyExe" type="text" list="workbuddyCandidates" autocomplete="off" placeholder="例如 E:\Apps\WorkBuddy\WorkBuddyAI.exe" required><datalist id="workbuddyCandidates"></datalist></label>
-</div><p class="hint">只检测常见程序路径和 App Paths 注册表项，不扫描账号数据库。未找到时请填写实际安装路径。</p>
+<label>WorkBuddy 使用方式<select id="workbuddyMode"><option value="test">独立测试：文字推理和附件读取</option><option value="normal">日常 WorkBuddy：沿用已有 MCP、Skill 和权限</option></select></label>
+<label>Chrome 程序<div class="path-select"><input id="chromeExe" type="text" list="chromeCandidates" autocomplete="off" placeholder="自动检测，或点右侧浏览选择 chrome.exe" required><button type="button" class="secondary" data-pick="chromeExe">浏览…</button></div><datalist id="chromeCandidates"></datalist></label>
+<label>WorkBuddy 程序<div class="path-select"><input id="workbuddyExe" type="text" list="workbuddyCandidates" autocomplete="off" placeholder="自动检测，或点右侧浏览选择 WorkBuddyAI.exe" required><button type="button" class="secondary" data-pick="workbuddyExe">浏览…</button></div><datalist id="workbuddyCandidates"></datalist></label>
+</div><p class="hint">不需要提前编辑配置文件。程序会检测本机安装位置；未找到时点击“浏览”选择。桥接数据默认保存在当前程序文件夹，Chrome 使用专用浏览器资料，需要单独登录一次。</p><p id="modeHint" class="hint"></p>
 <label class="check"><input id="allowNativeRuntimeRecords" type="checkbox"><span>我明确允许 WorkBuddy 自身产生必要的系统运行记录；这些记录可能位于系统盘。桥接程序控制的资料、缓存、临时文件和任务数据仍放在本项目所在的非 C 盘。未勾选也能保存配置，但不会启动或连接 WorkBuddy。</span></label>
-<details><summary>日常 WorkBuddy 配置（实验功能，可留空）</summary><p class="hint">这里仅保存高级配置，不切换当前模式。向导的三个按钮只操作独立模式；日常会话接入请按高级说明执行。</p>
-<label>日常资料目录（必须在非 C 盘）<input id="workbuddyProfile" type="text" autocomplete="off" placeholder="可留空"></label><br>
-<label>配置子目录（可留空，默认资料目录下 .workbuddy-ai）<input id="workbuddyConfigDir" type="text" autocomplete="off" placeholder="可留空"></label>
-<label class="check"><input id="allowNormalProfile" type="checkbox"><span>我明确允许后续通过高级入口使用上述日常资料目录。本次保存不会启用日常模式。</span></label>
+<details id="normalSettings"><summary>日常 WorkBuddy 资料目录</summary><p class="hint">选择日常模式时必须填写。保存配置后，先从托盘彻底退出原 WorkBuddy，再点击“打开两边应用”。这里只沿用现有目录，不复制账号、MCP 或 Skill。</p>
+<label>已有日常 WorkBuddy 资料<div class="path-select"><input id="workbuddyProfile" type="text" list="profileCandidates" autocomplete="off" placeholder="自动检测，或浏览选择已有用户资料"><button type="button" class="secondary" data-pick="workbuddyProfile">浏览…</button></div><datalist id="profileCandidates"></datalist></label><p id="profileHint" class="hint"></p>
+<label>配置子目录（里面应已有 workbuddy.db、MCP 和 Skill）<input id="workbuddyConfigDir" type="text" autocomplete="off" placeholder="留空则使用资料目录下 .workbuddy-ai"></label>
+<label class="check"><input id="allowNormalProfile" type="checkbox"><span>我明确允许沿用上述日常资料目录及其现有 MCP、Skill 和权限。实际执行任务仍需在协作台点击“开始”。</span></label>
 </details>
-<div class="toolbar"><button type="submit">保存配置</button><button id="rescan" type="button" class="secondary">重新检测程序</button><span id="saved" class="hint"></span></div>
+<div class="toolbar"><button type="submit">保存配置</button><button id="rescan" type="button" class="secondary">自动检测</button><span id="saved" class="hint"></span></div>
 </form></section>
 <section><h2>2. 按顺序连接</h2><div class="actions">
-<div class="step"><button id="openApps" type="button">打开两边应用</button><p>打开受管 Chrome 的 ChatGPT 页面和独立 WorkBuddy。在各自窗口中手动登录。</p></div>
+<div class="step"><button id="openApps" type="button">打开两边应用</button><p>按照已保存的模式打开 WorkBuddy 和专用 Chrome。在各自窗口中手动登录。</p></div>
 <div class="step"><button id="connectSession" type="button">登录后连接会话</button><p>核对登录状态并创建或复用专用执行会话。不会自动发测试消息或消耗模型额度。</p></div>
 <div class="step"><button id="openDashboard" type="button">打开协作台</button><p>进入任务界面，输入目标后明确开始。文字任务和附件都从协作台流程进入。</p></div>
 </div></section>
@@ -31,10 +33,11 @@
 </main><script>
 const token='__SETUP_TOKEN__';
 let currentPorts={workbuddy:18690,gpt:18691,dashboard:18692,normalWorkbuddy:18693};
-let busy=false,configured=false,dirty=false;
+let busy=false,configured=false,connected=false,dirty=false,detectedProfiles=[];
 const byId=id=>document.getElementById(id);
 function message(text,kind=''){byId('message').textContent=text;byId('message').className='message '+kind;}
-function controls(){document.querySelectorAll('button').forEach(b=>{b.disabled=busy;});for(const id of ['openApps','connectSession','openDashboard'])byId(id).disabled=busy||!configured||dirty;}
+function controls(){document.querySelectorAll('button').forEach(b=>{b.disabled=busy;});for(const id of ['openApps','connectSession','openDashboard'])byId(id).disabled=busy||!configured||dirty;byId('openDashboard').disabled=busy||!configured||dirty||!connected;}
+function showMode(){const normal=byId('workbuddyMode').value==='normal';byId('normalSettings').open=normal;byId('workbuddyProfile').required=normal;byId('modeHint').textContent=normal?'日常模式会使用你已有的 MCP、Skill 和工具权限。启动前请保存工作并彻底退出原 WorkBuddy。':'独立测试模式只做文字推理和读取明确附带的附件，不用于修改文件、执行命令或操作软件。';}
 async function request(url,data){
   const options={headers:{'X-Bridge-Token':token}};
   if(data!==undefined){options.method='POST';options.headers['Content-Type']='application/json';options.body=JSON.stringify(data);}
@@ -42,26 +45,57 @@ async function request(url,data){
 }
 async function run(action){if(busy)return;busy=true;controls();try{await action();}catch(e){message(e.message,'error');}finally{busy=false;controls();}}
 function populate(state,replace){
-  configured=state.configured;currentPorts=state.config.ports;
-  byId('root').textContent='程序及受控数据目录：'+state.root+'。当前运行模式：'+(state.mode==='test'?'独立测试':'日常模式（向导操作已禁用）');
+  configured=state.configured;connected=state.connected===true;currentPorts=state.config.ports;
+  byId('root').textContent='程序及受控数据目录：'+state.root+'。当前运行模式：'+(state.mode==='test'?'独立测试':'日常 WorkBuddy');
+  byId('modeBadge').textContent='Windows · '+(state.mode==='normal'?'日常 WorkBuddy':'独立测试');
   for(const [kind,field] of [['chrome','chromeExe'],['workbuddy','workbuddyExe']]){
     const candidates=state.detected[kind]??[];byId(kind+'Candidates').replaceChildren(...candidates.map(item=>{const option=document.createElement('option');option.value=item.path;return option;}));
     if(replace)byId(field).value=state.config[field]||candidates[0]?.path||'';
     else if(!byId(field).value&&candidates[0]){byId(field).value=candidates[0].path;dirty=true;}
   }
-  if(replace){for(const field of ['workbuddyProfile','workbuddyConfigDir'])byId(field).value=state.config[field]||'';for(const field of ['allowNormalProfile','allowNativeRuntimeRecords'])byId(field).checked=state.config[field]===true;dirty=false;}
+  if(replace){for(const field of ['workbuddyProfile','workbuddyConfigDir'])byId(field).value=state.config[field]||'';byId('workbuddyMode').value=state.config.workbuddyMode??'test';for(const field of ['allowNormalProfile','allowNativeRuntimeRecords'])byId(field).checked=state.config[field]===true;dirty=false;}
+  populateProfiles(state.detected.profiles??[]);
+  showMode();
   byId('saved').textContent=state.configured?'已有有效配置。':'首次使用，请核对路径后保存。';
-  if(state.mode!=='test'){configured=false;message('当前项目处于日常模式。请使用已有日常入口；本向导不会自动切换模式。','error');}
-  else if(state.problem)message(state.problem.message);
+  if(state.problem)message(state.problem.message);
   else message('配置已就绪。请依次打开两边、登录并连接会话。','success');
 }
+function markDirty(){dirty=true;connected=false;byId('saved').textContent='有未保存的修改。';controls();}
+function populateProfiles(profiles){
+  detectedProfiles=profiles;
+  byId('profileCandidates').replaceChildren(...profiles.map(item=>{const option=document.createElement('option');option.value=item.workbuddyProfile;return option;}));
+  if(!byId('workbuddyProfile').value&&profiles.length===1){byId('workbuddyProfile').value=profiles[0].workbuddyProfile;byId('workbuddyConfigDir').value=profiles[0].workbuddyConfigDir;markDirty();}
+  byId('profileHint').textContent=profiles.length===1?'检测到已有日常配置，路径已填入。请核对后保存。':profiles.length>1?'检测到多个日常配置，请从列表或浏览按钮选择要沿用的一个。':'没有检测到日常配置。可浏览选择已有资料；首次使用也可选择独立测试模式，资料目录会自动创建。';
+}
+async function detect(){
+  const selected=byId('workbuddyExe').value.trim();
+  const detected=await request('/api/detect',selected?{workbuddyExe:selected}:{});
+  for(const [kind,field] of [['chrome','chromeExe'],['workbuddy','workbuddyExe']]){
+    const candidates=detected[kind]??[];
+    byId(kind+'Candidates').replaceChildren(...candidates.map(item=>{const option=document.createElement('option');option.value=item.path;return option;}));
+    if(!byId(field).value&&candidates[0]){byId(field).value=candidates[0].path;markDirty();}
+  }
+  populateProfiles(detected.profiles??[]);
+  return detected;
+}
 byId('settings').addEventListener('input',()=>{dirty=true;byId('saved').textContent='有未保存的修改。';controls();});
+byId('workbuddyMode').addEventListener('change',showMode);
 byId('settings').addEventListener('submit',event=>{event.preventDefault();run(async()=>{
-  const data={ports:currentPorts};for(const field of ['chromeExe','workbuddyExe','workbuddyProfile','workbuddyConfigDir'])data[field]=byId(field).value.trim();for(const field of ['allowNormalProfile','allowNativeRuntimeRecords'])data[field]=byId(field).checked;
-  const result=await request('/api/config',data);configured=true;dirty=false;byId('saved').textContent='已保存。';message('配置已保存。'+(result.backup?'上一版保留于：'+result.backup:'')+'\n接下来点击“打开两边应用”。','success');
+  const data={ports:currentPorts,workbuddyMode:byId('workbuddyMode').value};for(const field of ['chromeExe','workbuddyExe','workbuddyProfile','workbuddyConfigDir'])data[field]=byId(field).value.trim();for(const field of ['allowNormalProfile','allowNativeRuntimeRecords'])data[field]=byId(field).checked;
+  const result=await request('/api/config',data);configured=true;connected=false;dirty=false;byId('saved').textContent='已保存。';message('配置已保存。'+(result.backup?'上一版保留于：'+result.backup:'')+'\n接下来点击“打开两边应用”，登录后再连接会话。','success');
 });});
-byId('rescan').addEventListener('click',()=>run(async()=>populate(await request('/api/state'),false)));
+byId('rescan').addEventListener('click',()=>run(async()=>{await detect();message('检测完成。未检测到的软件请点击“浏览”选择；核对后保存。','success');}));
+byId('workbuddyProfile').addEventListener('change',()=>{const match=detectedProfiles.find(p=>p.workbuddyProfile===byId('workbuddyProfile').value);if(match)byId('workbuddyConfigDir').value=match.workbuddyConfigDir;});
+for(const button of document.querySelectorAll('[data-pick]'))button.addEventListener('click',()=>run(async()=>{
+  message('请在系统选择窗口中选择程序或已有资料目录。');
+  const result=await request('/api/pick-path',{field:button.dataset.pick});
+  if(result.cancelled){message('已取消选择，配置没有改变。');return;}
+  for(const field of ['chromeExe','workbuddyExe','workbuddyProfile','workbuddyConfigDir'])if(result[field])byId(field).value=result[field];
+  markDirty();
+  if(button.dataset.pick==='workbuddyExe')await detect();
+  message('已选中。请核对模式与权限后保存配置。','success');
+}));
 const routes={openApps:'/api/open-apps',connectSession:'/api/connect-session',openDashboard:'/api/open-dashboard'};
-for(const [id,url] of Object.entries(routes))byId(id).addEventListener('click',()=>run(async()=>{message('正在'+byId(id).textContent+'…请稍候。');const result=await request(url,{});message(result.message||result.summary||JSON.stringify(result,null,2),'success');}));
+for(const [id,url] of Object.entries(routes))byId(id).addEventListener('click',()=>run(async()=>{message('正在'+byId(id).textContent+'…请稍候。');const result=await request(url,{});populate(await request('/api/state'),false);message(result.message||result.summary||JSON.stringify(result,null,2),'success');}));
 run(async()=>populate(await request('/api/state'),true));
 </script></body></html>

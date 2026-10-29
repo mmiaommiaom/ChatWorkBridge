@@ -1,11 +1,13 @@
 {
   "name": "chat-work-bridge",
-  "version": "0.4.0-preview.1",
+  "version": "0.4.0-preview.4",
   "private": true,
   "type": "module",
   "description": "Windows ChatGPT web to WorkBuddy desktop bridge with durable task state",
   "license": "MIT",
-  "engines": {"node": ">=22.13.0"},
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "start": "node scripts/start.mjs",
     "initialize": "node scripts/initialize-session.mjs",
@@ -26,5 +28,7 @@
     "playwright-core": "1.62.1",
     "zod": "3.25.76"
   },
-  "devDependencies": {"@electron/asar": "3.2.10"}
+  "devDependencies": {
+    "@electron/asar": "3.2.10"
+  }
 }

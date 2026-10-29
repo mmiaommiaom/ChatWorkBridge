@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {testDirectory} from './helpers.mjs';
-import {loadConfig,assertControlledPath,projectRoot,expectedRendererPrefix,dataDriveForPath} from '../src/local-config.mjs';
+import {loadConfig,assertControlledPath,projectRoot,expectedRendererPrefix,dataDriveForPath,validateExecutable} from '../src/local-config.mjs';
 
 const directory=testDirectory('local-config');
 const projectDrive=dataDriveForPath(projectRoot);
@@ -107,4 +107,30 @@ test('valid custom ports and synthetic app/profile paths load without launching 
   assert.equal(expectedRendererPrefix(result),expected);
   assert.equal(fs.existsSync(workbuddyProfile),false);
   assert.equal(fs.existsSync(base.workbuddyExe),false);
+});
+
+test('existing fake EXE files and the wrong application are rejected before launch',()=>{
+  const target=path.join(directory,'Chrome.exe');fs.writeFileSync(target,'synthetic placeholder');
+  assert.throws(()=>validateExecutable(target,'chromeExe'),/不是有效/);
+  assert.throws(()=>validateExecutable(target,'workbuddyExe'),/实际应用/);
+  const pe=Buffer.alloc(128);pe.write('MZ');pe.writeUInt32LE(64,60);pe.set([0x50,0x45,0,0],64);fs.writeFileSync(target,pe);
+  assert.equal(validateExecutable(target,'chromeExe'),target);
+  pe.writeUInt32LE(10000,60);fs.writeFileSync(target,pe);
+  assert.throws(()=>validateExecutable(target,'chromeExe'),/程序头无效/);
+});
+
+test('daily mode must be explicit and authorized, and is not inferred from advanced paths',()=>{
+  const profile=path.join(directory,'mode-profile');
+  assert.equal(load({allowNormalProfile:true,workbuddyProfile:profile}).workbuddyMode,'test');
+  invalid({workbuddyMode:'unknown'},/workbuddyMode/);
+  invalid({workbuddyMode:'normal'},/明确允许/);
+  assert.equal(load({workbuddyMode:'normal',allowNormalProfile:true,workbuddyProfile:profile}).workbuddyMode,'normal');
+});
+
+test('dangling junctions are rejected before any destination creation',()=>{
+  const target=path.join(directory,'missing-junction-target');
+  const link=path.join(directory,'dangling-junction');fs.symlinkSync(target,link,'junction');
+  assert.equal(fs.existsSync(link),false);assert.equal(fs.lstatSync(link).isSymbolicLink(),true);
+  assert.throws(()=>assertControlledPath(path.join(link,'child')),/无法解析|联接/);
+  assert.equal(fs.existsSync(target),false);
 });

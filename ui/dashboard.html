@@ -1,7 +1,95 @@
 <!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GPT × WorkBuddy 协作台</title>
-<style>body{font:16px/1.6 system-ui;background:#f3f5f7;color:#172332;margin:0}main{max-width:900px;margin:36px auto;padding:24px}section{background:white;padding:24px;border:1px solid #dce2e8;border-radius:16px;margin:18px 0}h1{font-size:28px}h2{font-size:19px}textarea{box-sizing:border-box;width:100%;min-height:140px;font:inherit;border:1px solid #b9c6d2;border-radius:10px;padding:12px}button{font:inherit;border:0;border-radius:8px;background:#2057c4;color:white;padding:10px 18px;cursor:pointer;margin:8px 6px 0 0}button.secondary{background:#e8edf4;color:#24374d}small{color:#586b7b}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:14px/1.6 system-ui}article{border-top:1px solid #e1e6ed;padding:14px 0}.badge{font-weight:600;color:#2057c4}a{color:#2057c4}#notice{min-height:26px}</style>
-<main><h1>GPT × WorkBuddy 协作台</h1><small>GPT 派工 · WorkBuddy 执行 · GPT 检查与返工</small>
-<section><h2 id="task-heading">开始任务</h2><p id="runtime-status"></p><textarea id="goal" placeholder="输入希望两边协作完成的文字任务"></textarea><p><small>最多执行 3 轮。接入日常模式后沿用你已有的 MCP、Skill 和正常工具权限；仍需遵守不写 C 盘及付费模型先申请的规则。</small></p><button id="start">开始任务</button><button class="secondary" id="pause">当前回复结束后暂停</button><p id="notice" role="status"></p></section>
-<section><h2>任务与结果</h2><div id="runs">读取中…</div></section><section><h2>执行进度</h2><pre id="output">暂无任务</pre></section>
-<section><h2>模型规则</h2><p>允许：DeepSeek V4.1 Flash、HY3、Step 5 Preview。其他模型需要你批准。剩余额度未知；检测到额度耗尽后跳过该模型。结果不确定或已产生操作时停止自动重发。</p><pre id="models"></pre></section></main>
-<script>function prettySummary(s){try{const v=JSON.parse(s),r=v.finalResults||v;if(r.sum!==undefined&&r.sumOfSquares!==undefined)return '总和：'+r.sum+'\n平方和：'+r.sumOfSquares+'\n独立核对：通过';return JSON.stringify(v,null,2)}catch{return s}}const token='__TOKEN__';let lastRunsHash='';const labels={prepared:'准备中',waiting_gpt:'GPT 正在检查',waiting_workbuddy:'WorkBuddy 正在执行',done:'已完成',paused:'已暂停',uncertain:'结果待核验',failed:'失败',cancelled:'已结束',needs_user:'需要你补充信息'};async function post(path,data={}){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Bridge-Token':token},body:JSON.stringify(data)});const j=await r.json();if(!r.ok)throw Error(j.error);return j}function notice(t){document.getElementById('notice').textContent=t}document.getElementById('start').onclick=async()=>{try{await post('/api/start',{goal:document.getElementById('goal').value});notice('任务已开始')}catch(e){notice(e.message)}};document.getElementById('pause').onclick=async()=>{try{notice((await post('/api/pause')).message)}catch(e){notice(e.message)}};async function refresh(){try{const s=await(await fetch('/api/status')).json();document.getElementById('runtime-status').textContent=s.runtime==='normal'?'当前：日常 WorkBuddy，已复用原配置。':'当前：独立测试配置。接入日常配置请参阅安装说明，保存并退出 WorkBuddy 后使用日常启动入口。';document.getElementById('output').textContent=(s.output||'暂无运行中的任务').split('\n').filter(line=>!/ExperimentalWarning|Use .node --trace-warnings/.test(line)).join('\n');document.getElementById('models').textContent=Object.entries(s.models).map(([m,v])=>m+'：'+(v.quotaExhausted?'额度耗尽，已跳过':v.lastError?'最近异常：'+({service_error:'服务暂时出错',rate_limited:'请求限流',quota_exhausted:'额度耗尽',uncertain:'结果待核验',auth_or_permission:'需要检查登录或权限'}[v.lastError.category]||v.lastError.category):'已成功调用')+'；成功 '+(v.successes||0)+' 次，失败 '+(v.failures||0)+' 次').join('\n');const runsHash=JSON.stringify(s.runs);if(runsHash===lastRunsHash)return;lastRunsHash=runsHash;const root=document.getElementById('runs');root.replaceChildren();for(const r of s.runs.slice(0,8)){const a=document.createElement('article');const state=document.createElement('span');state.className='badge';state.textContent=labels[r.state]||r.state;a.append(state);const goal=document.createElement('p');goal.textContent=r.goal;a.append(goal);if(r.summary||r.error){const p=document.createElement('pre');p.textContent=prettySummary(r.summary||r.error);a.append(p)}if(r.gptUrl){const link=document.createElement('a');link.href=r.gptUrl;link.target='_blank';link.textContent='查看 GPT 聊天';a.append(link)}if(r.state==='paused'){const b=document.createElement('button');b.textContent='继续此任务';b.onclick=async()=>{try{await post('/api/resume',{runId:r.id});notice('已从保存的结果继续')}catch(e){notice(e.message)}};a.append(b)}root.append(a)}}catch(e){notice('界面连接中断，请检查启动窗口')}}refresh();setInterval(refresh,2000);</script></html>
+<style>body{font:16px/1.6 system-ui;background:#f3f5f7;color:#172332;margin:0}main{max-width:1000px;margin:28px auto;padding:20px}section{background:white;padding:24px;border:1px solid #dce2e8;border-radius:14px;margin:18px 0}h1{font-size:28px}h2{font-size:20px}textarea{box-sizing:border-box;width:100%;min-height:110px;font:inherit;border:1px solid #b9c6d2;border-radius:8px;padding:12px}button{font:inherit;border:0;border-radius:8px;background:#2057c4;color:white;padding:10px 16px;cursor:pointer;margin:8px 6px 0 0}button:disabled{opacity:.5;cursor:wait}button.secondary{background:#e8edf4;color:#24374d}small{color:#586b7b}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:14px/1.6 system-ui}article{border-top:1px solid #e1e6ed;padding:12px 0}.badge{font-weight:600;color:#2057c4}a{color:#2057c4}.warning{background:#fff4df;padding:12px;border-radius:8px}.message{padding:10px;border-left:3px solid #aac0dd;margin:8px 0;white-space:pre-wrap;overflow-wrap:anywhere}#notice{min-height:26px}label{display:block}</style>
+<main><h1>GPT × WorkBuddy 协作台</h1><small>先制定验收标准和检查能力，再派工、审核与返工。</small>
+<p id="verification" role="status"></p><section><h2>我的工作</h2><p><small>工作和对话自动保存。可切换查看；一次执行一个工作，其他工作保留进度。</small></p><input id="work-search" placeholder="搜索名称、目标或日期" style="font:inherit;padding:10px;width:60%"><label><input id="show-archived" type="checkbox"> 显示归档工作</label><button id="new-work">新建工作</button><p id="work-count"></p><div id="work-list"></div></section><section><h2>新工作目标</h2><p id="runtime-status"></p><textarea id="goal" placeholder="输入协作目标"></textarea><p><small>按验收结果持续执行，不限制三轮。沿用日常 MCP、Skill 和工具权限；不写 C 盘，不隐藏执行 PowerShell，其他模型须先申请。</small></p><button id="start">开始新工作</button><button class="secondary" id="pause">暂停正在执行的工作</button><button class="secondary" id="recover">检查中断状态</button><p id="notice" role="status"></p></section>
+<section id="human"><h2 id="selected-heading">工作消息</h2><div id="request">暂无任务</div><div id="capabilities"></div><div id="proposal"></div><div id="messages"></div><textarea id="reply" placeholder="回复 GPT；执行中的补充消息会排队，不会中断 WorkBuddy。"></textarea><button id="send-reply">回复 GPT</button><button id="recheck" class="secondary">已完成，重新检查</button><a id="original" target="_blank" rel="noopener noreferrer" hidden>查看原 GPT 聊天</a><p id="reply-status" role="status"></p></section>
+<section><h2>任务与验收</h2><div id="runs">读取中…</div></section><section><details id="history-details"><summary>查看此工作已保存的完整对话</summary><p><small>按时间保存发给 GPT 的内容、GPT 回复、派工和 WorkBuddy 结果。</small></p><button id="older-history" class="secondary">载入对话记录</button><div id="history"></div></details></section><section><h2>执行进度</h2><pre id="output">暂无任务</pre></section>
+<section><h2>模型规则</h2><p>允许：DeepSeek V4.1 Flash、HY3、Step 5 Preview。其他模型需要批准。剩余额度与实际费用未知；检测到额度耗尽后跳过，全部不可用时暂停。未知模型/费用的专家和团队不会自动调用。</p><pre id="models"></pre></section></main>
+<script>function prettySummary(s){try{return JSON.stringify(JSON.parse(s),null,2)}catch{return s}}
+const token='__TOKEN__',el=id=>document.getElementById(id);let current=null,lastHash='',selectedId=localStorage.getItem('bridge-selected-work')||'',lastWorks=[],pendingNew=null,historyRun=null,historyBefore=null;
+const labels={prepared:'准备中',waiting_gpt:'GPT 正在规划或验收',waiting_workbuddy:'WorkBuddy 正在执行',done:'已完成',paused:'已暂停',uncertain:'结果待核验',failed:'失败',cancelled:'已结束跟踪',needs_user:'需要你处理'};
+const statuses={ready:'自动验证通过',user_confirmed:'用户确认，未自动验证',unknown:'需用户确认',missing:'未安装或当前项目不可见',disabled:'未启用',needs_trust:'需要信任',disconnected:'未连接',tool_missing:'工具不可见'};
+function notice(text){el('notice').textContent=text}
+function node(tag,text,parent){const e=document.createElement(tag);e.textContent=text;parent?.append(e);return e}
+async function post(url,data={}){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','X-Bridge-Token':token},body:JSON.stringify(data)});const j=await r.json();if(!r.ok)throw Error(j.error);return j}
+async function action(button,fn){button.disabled=true;try{const result=await fn();if(result?.message)notice(result.message);await refresh()}catch(e){notice(e.message)}finally{button.disabled=false}}
+function saveDraft(){if(current)localStorage.setItem('bridge-work-draft-'+current.id,el('reply').value)}
+function chooseWork(id){saveDraft();selectedId=id;localStorage.setItem('bridge-selected-work',id);current=null;el('send-reply').disabled=true;lastHash='';refresh()}
+el('reply').oninput=saveDraft;
+el('work-search').oninput=()=>{lastHash='';refresh()};el('show-archived').onchange=()=>{lastHash='';refresh()};
+el('new-work').onclick=()=>{saveDraft();el('goal').value='';el('goal').focus();el('goal').scrollIntoView({block:'center',behavior:'smooth'});notice('输入新工作目标，旧工作和对话会保留。正在执行时请先暂停。')};
+el('start').onclick=()=>action(el('start'),async()=>{const ids=new Set(lastWorks.map(r=>r.id));const r=await post('/api/start',{goal:el('goal').value});saveDraft();pendingNew=ids;selectedId='';localStorage.removeItem('bridge-selected-work');return r});
+el('older-history').onclick=()=>action(el('older-history'),async()=>{
+ if(!current)throw Error('请先选择工作');const id=current.id;
+ const r=await fetch('/api/work-history?runId='+encodeURIComponent(id)+(historyBefore?'&before='+historyBefore:''),{headers:{'X-Bridge-Token':token}});const j=await r.json();if(!r.ok)throw Error(j.error);if(current?.id!==id)return;
+ const group=document.createElement('div');for(const m of j.messages){const a=node('article','',group);node('b',(m.direction==='gpt'?'GPT 对话':'WorkBuddy 执行')+' · '+m.state,a);node('pre','发送：'+(m.payload.text??m.payload.command?.instruction??JSON.stringify(m.payload)),a);if(m.result)node('pre','回复：'+(m.result.text??m.result.error??JSON.stringify(m.result)),a);}el('history').prepend(group);historyBefore=j.nextBefore;el('older-history').textContent=historyBefore?'载入更早记录':'全部对话已载入';el('older-history').hidden=!historyBefore;return {message:j.messages.length?'已读取保存的对话，未发送任何任务。':'暂无对话记录。'};
+});
+el('pause').onclick=()=>action(el('pause'),()=>post('/api/pause'));
+el('recover').onclick=()=>action(el('recover'),()=>current?.state==='uncertain'?post('/api/reconcile',{runId:current.id}):post('/api/recover'));
+el('send-reply').onclick=()=>action(el('send-reply'),async()=>{
+ if(!current)throw Error('请先开始任务');const text=el('reply').value;if(!text.trim())throw Error('请输入回复');
+ const key='bridge-reply-'+current.id;let saved;try{saved=JSON.parse(localStorage.getItem(key))}catch{}
+ if(!saved||saved.text!==text)saved={runId:current.id,text,clientMessageId:crypto.randomUUID()};localStorage.setItem(key,JSON.stringify(saved));
+ const r=current.state==='done'?await post('/api/continue-work',{runId:current.id,goal:text,clientMessageId:saved.clientMessageId}):await post('/api/user-reply',saved);el('reply').value='';localStorage.removeItem(key);localStorage.removeItem('bridge-work-draft-'+current.id);el('reply-status').textContent=r.message;return r;
+});
+el('recheck').onclick=()=>action(el('recheck'),()=>{
+ if(!current)throw Error('没有待检查任务');
+ const confirmApplications=[...el('capabilities').querySelectorAll('input:checked')].map(i=>i.value);
+ return post('/api/recheck-capabilities',{runId:current.id,confirmApplications});
+});
+function button(parent,text,url,data){const b=node('button',text,parent);b.className='secondary';b.onclick=()=>action(b,()=>post(url,data));return b}
+async function refresh(){
+ try{
+  const response=await fetch('/api/status'+(selectedId?'?runId='+encodeURIComponent(selectedId):''),{headers:{'X-Bridge-Token':token}}),s=await response.json();if(!response.ok)throw Error(s.error);
+  el('verification').textContent=s.verification?.state==='done'?'本机临时沙盒验收通过：'+s.verification.workerRounds+' 次派工、'+s.verification.criteria+' 项标准；实际命令等待 '+(s.verification.elapsedMs/1000)+' 秒。':'';
+  el('runtime-status').textContent=!s.connected?'请回到向导连接会话。':s.runtime==='normal'?'日常 WorkBuddy，复用原配置。':'独立测试配置。';
+  el('output').textContent=(s.output||'暂无运行中的任务').split('\n').filter(l=>!/ExperimentalWarning|Use .node --trace-warnings/.test(l)).join('\n');
+  el('models').textContent=Object.entries(s.models).map(([m,v])=>m+'：'+(v.quotaExhausted?'额度耗尽，已跳过':v.lastError?'最近异常：'+v.lastError.category:'已成功调用')+'；成功 '+(v.successes||0)+'，失败 '+(v.failures||0)).join('\n');
+  lastWorks=s.runs;
+  if(pendingNew){const added=s.runs.find(r=>!pendingNew.has(r.id));if(added){pendingNew=null;chooseWork(added.id);return;}if(s.job?.state==='running'){notice('正在建立新工作，旧工作已保存。');return;}pendingNew=null;}
+  const incoming=s.runs.find(r=>r.id===s.selectedRunId)??s.runs[0]??null;
+  if(incoming&&selectedId!==incoming.id){selectedId=incoming.id;localStorage.setItem('bridge-selected-work',selectedId);}
+  if(incoming?.id!==current?.id){el('reply').value=incoming?localStorage.getItem('bridge-work-draft-'+incoming.id)||'':'';}
+  current=incoming;
+  if(historyRun!==current?.id){historyRun=current?.id;historyBefore=null;el('history').replaceChildren();el('older-history').hidden=false;el('older-history').textContent='载入对话记录';el('history-details').open=false;}
+  const fingerprint=JSON.stringify([s.runs,selectedId,el('work-search').value,el('show-archived').checked]);if(fingerprint===lastHash)return;lastHash=fingerprint;
+  for(const id of ['work-list','runs','request','capabilities','proposal','messages'])el(id).replaceChildren();
+  const query=el('work-search').value.toLowerCase(),visible=s.runs.filter(r=>(el('show-archived').checked||!r.workArchived)&&[r.workTitle,r.displayName,r.goal,r.createdAt,r.id].join(' ').toLowerCase().includes(query));
+  el('work-count').textContent=s.runs.length+' 个工作已保存；当前显示 '+visible.length+' 个。';
+  for(const work of visible){const a=node('article','',el('work-list'));node('b',(work.id===current?.id?'▶ ':'')+(work.workTitle??work.displayName??work.goal.slice(0,60)),a);node('p',(labels[work.state]??work.state)+' · '+(work.createdAt?new Date(work.createdAt).toLocaleString('zh-CN'):'')+(work.workArchived?' · 已归档':''),a);const open=node('button','打开这个工作',a);open.onclick=()=>chooseWork(work.id);const rename=node('button','改名',a);rename.className='secondary';rename.onclick=()=>action(rename,async()=>{const title=prompt('工作名称（不移动目录）',work.workTitle??work.displayName??work.goal.slice(0,60));if(title===null)return;return post('/api/rename-work',{runId:work.id,title})});if(!['prepared','waiting_gpt','waiting_workbuddy'].includes(work.state))button(a,work.workArchived?'取消归档':'归档保存','/api/archive-work',{runId:work.id,archived:!work.workArchived});if(['done','failed','cancelled','paused','needs_user'].includes(work.state)){const del=node('button','删除',a);del.className='secondary';del.style.color='#b42318';del.onclick=()=>action(del,async()=>{if(!confirm('永久删除此工作的本地对话记录、附件及专属工作目录和产物？\n无法撤销。GPT、WorkBuddy 原聊天与既有备份保留。'))return;const result=await post('/api/delete-work',{runId:work.id,confirmation:'永久删除本地工作'});localStorage.removeItem('bridge-work-draft-'+work.id);localStorage.removeItem('bridge-reply-'+work.id);if(selectedId===work.id){selectedId='';current=null;localStorage.removeItem('bridge-selected-work');}lastHash='';return result;});}}
+  if(current){
+   const r=current;el('selected-heading').textContent='当前工作：'+(r.workTitle??r.displayName??r.goal.slice(0,60));node('p',(labels[r.state]??r.state)+'：'+(r.question??r.error??r.goal),el('request'));
+   if(r.state==='uncertain')node('p','请先检查中断结果。不会重发派工，也不会自动重做旧任务。',el('request')).className='warning';
+   if(/^https:\/\/chatgpt\.com\/c\/[\w-]+$/.test(r.gptUrl??'')){el('original').href=r.gptUrl;el('original').hidden=false}else el('original').hidden=true;
+   for(const c of r.capabilityReport?.checks??[]){
+    const a=node('article','',el('capabilities'));node('b',c.name+' · '+(c.required?'必需':'可选')+' · '+(statuses[c.status]??c.status),a);
+    node('p',c.reason+'\n'+c.evidence,a);if(!['ready','user_confirmed'].includes(c.status))node('pre',c.instructions,a);
+    if(c.kind==='application'&&c.status!=='ready'){const label=node('label','',a),input=document.createElement('input');input.type='checkbox';input.value=c.id;label.append(input,document.createTextNode(' 我确认该软件已打开（作为用户确认，非自动验证）'));}
+   }
+   if(r.acceptanceProposal){
+    const p=r.acceptanceProposal;node('p','GPT 请求变更验收标准：'+p.summary,el('proposal')).className='warning';node('pre',p.acceptance.map((c,i)=>'A'+(i+1)+' '+c).join('\n'),el('proposal'));
+    const b=node('button','明确批准以上变更',el('proposal'));b.onclick=()=>action(b,async()=>{if(!confirm('确认批准以上验收标准变更？'))return;return post('/api/approve-standard',{runId:r.id,proposalId:p.id,clientMessageId:crypto.randomUUID()})});
+   }
+   for(const m of (r.notices??[]).slice(-12))node('div',({gpt:'GPT',bridge:'系统',user:'你'}[m.author]??m.author)+'：'+m.text,el('messages')).className='message';
+   const queue=(r.interactions??[]).filter(i=>i.state==='queued').length;
+   el('reply-status').textContent=queue?queue+' 条回复已保存，等待安全边界发送至原 GPT 聊天。':'';
+   el('recheck').disabled=!['needs_user','paused'].includes(r.state)||!r.requirements;
+   el('send-reply').disabled=['failed','cancelled'].includes(r.state);el('send-reply').textContent=r.state==='done'?'以此目标继续原工作':'回复 GPT';el('reply').placeholder=r.state==='done'?'这个工作已完成。输入后续目标，将沿用原聊天和文件目录继续。':'回复当前工作；执行中的补充消息会排队。';
+  }else node('p','暂无任务',el('request'));
+  for(const r of current?[current]:[]){
+   const a=node('article','',el('runs'));node('b',(r.workTitle??r.displayName??r.goal)+' · '+(labels[r.state]??r.state),a);
+   if(r.acceptance?.length)node('pre',r.acceptance.map((c,i)=>(r.checks?.find(v=>v.id==='A'+(i+1))?.passed?'✓ ':'○ ')+'A'+(i+1)+' '+c).join('\n'),a);
+   node('small','第 '+(r.stage??1)+' 阶段，已执行 '+(r.workerRounds??0)+' 次；工作 ID：'+r.id,a);
+   if(r.summary)node('pre',prettySummary(r.summary),a);for(const stage of r.completedStages??[]){const d=node('details','',a);node('summary','已保存阶段 '+stage.stage+'：'+stage.goal,d);node('pre',prettySummary(stage.summary??''),d);node('pre',JSON.stringify(stage.acceptance??[],null,2),d);}
+   for(const f of r.lastArtifacts??[])node('pre','产物：'+f.path+(f.uploadable===false?'（仅核验本地文件，未上传）':''),a);
+   if(['paused','needs_user'].includes(r.state)&&!r.acceptanceProposal)button(a,'继续此任务','/api/resume',{runId:r.id});
+   if(['paused','needs_user'].includes(r.state))button(a,'结束跟踪并保留记录','/api/cancel',{runId:r.id});
+   if(r.state==='uncertain'){
+    button(a,'核对原请求结果','/api/reconcile',{runId:r.id});
+    const b=node('button','保留旧任务，结束跟踪',a);b.className='secondary';b.onclick=()=>action(b,async()=>{if(!confirm('结果尚未验证。保留全部记录和产物、结束跟踪，且不取消或重做远端任务？'))return;return post('/api/archive-uncertain',{runId:r.id,confirmation:'保留记录并结束跟踪'})});
+   }
+  }
+ }catch(e){notice(e.message||'界面连接中断，请检查启动窗口')}
+}
+refresh();setInterval(refresh,2000);
+</script></html>

@@ -17,6 +17,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -31,6 +33,19 @@ jobs:
           "TEMP=$tempRoot" | Out-File $env:GITHUB_ENV -Append
           "TMP=$tempRoot" | Out-File $env:GITHUB_ENV -Append
           "TOOL_ROOT=$toolRoot" | Out-File $env:GITHUB_ENV -Append
+      - name: Read release version and refuse an existing tag
+        id: release
+        shell: pwsh
+        run: |
+          $releaseVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($releaseVersion -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') { throw 'Invalid package version' }
+          $releaseTag = 'v' + $releaseVersion
+          git show-ref --verify --quiet ('refs/tags/' + $releaseTag)
+          if ($LASTEXITCODE -eq 0) { throw 'This release tag already exists. Bump the package version; do not replace published assets.' }
+          if ($LASTEXITCODE -ne 1) { throw 'Could not check existing release tags' }
+          "version=$releaseVersion" | Out-File $env:GITHUB_OUTPUT -Append
+          "tag=$releaseTag" | Out-File $env:GITHUB_OUTPUT -Append
+          exit 0
       - name: Verify Node and NSIS downloads
         shell: pwsh
         run: |
@@ -53,11 +68,18 @@ jobs:
         shell: pwsh
         run: |
           ./scripts/build-windows.ps1 -NodeDirectory (Join-Path $env:TOOL_ROOT 'node/node-v22.22.2-win-x64') -MakensisDirectory (Join-Path $env:TOOL_ROOT 'nsis/nsis-3.13') -OutputDirectory (Join-Path $env:GITHUB_WORKSPACE 'dist')
+      - name: Verify installation and preservation of existing files
+        shell: pwsh
+        run: |
+          $installer = @(Get-ChildItem -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'dist') -Filter '*-setup.exe')
+          if ($installer.Count -ne 1) { throw 'Expected one installer' }
+          ./packaging/test-installer.ps1 -Installer $installer[0].FullName -RunInstallerTests
       - name: Publish preview assets
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.4.0-preview.1
-          name: ChatWorkBridge 0.4.0 Preview 1
+          tag_name: ${{ steps.release.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: ChatWorkBridge ${{ steps.release.outputs.version }}
           prerelease: true
           fail_on_unmatched_files: true
           files: |

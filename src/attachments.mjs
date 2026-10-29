@@ -45,20 +45,62 @@ export async function collect(page,{messageId,role='assistant'}={}){
     const el=matches[0];
     // User uploads are siblings of the text bubble inside this exact message
     // element. Scoping to the bubble alone silently loses those attachments.
-    const content=role==='user'?el:el.querySelector('[data-markdown-text-style="assistant-message"]')??el;
+    // Generated images have their own message ID beside the final markdown.
+    // The enclosing logical turn contains the submitted user and this reply;
+    // exclude the user subtree instead of assuming all assets live in markdown.
+    const logical=role==='assistant'?el.closest('[data-talvt-turn-state]'):null;
+    const content=role==='user'?el:logical??el;
+    const belongs=node=>{
+      if(role!=='assistant')return true;
+      const unit=node.closest('[data-chatgpt-search-unit-key],[data-message-author-role]');
+      return unit?.getAttribute('data-message-author-role')!=='user'&&!unit?.getAttribute('data-chatgpt-search-unit-key')?.endsWith(':user');
+    };
     const items=[];
     for(const img of content.querySelectorAll('img')){
+      if(!belongs(img))continue;
       const url=img.currentSrc||img.src;
       if(url)items.push({url,kind:'image',name:(img.getAttribute('data-filename')||img.alt||'image').slice(0,200)});
     }
     for(const a of content.querySelectorAll('a[href]')){
+      if(!belongs(a))continue;
       const url=a.href;
       if(url)items.push({url,kind:'file',name:(a.getAttribute('download')||a.innerText||'attachment').trim().slice(0,200)});
     }
     return items.slice(0,100);
   },{messageId,role});
   const seen=new Set();
+  if(candidates.some(item=>item.kind==='image'&&!allowedAttachmentUrl(item.url)))throw Error('ATTACHMENT_IMAGE_SOURCE_UNAVAILABLE: 本轮有图片但无法安全取得，停止派工');
   return candidates.filter(item=>allowedAttachmentUrl(item.url)&&!seen.has(item.url)&&seen.add(item.url)).map(item=>({...item,messageId,role}));
+}
+
+/** Export only existing regular files inside the bound worker workspace. */
+export function workerArtifacts(text,{workspace,maxFiles=10}={}){
+  const blocks=[...String(text??'').matchAll(/```(?:bridge-artifacts|json)\s*\n([\s\S]*?)\n```/g)].filter(m=>{
+    if(m[0].startsWith('```bridge-artifacts'))return true;
+    try{const v=JSON.parse(m[1]);return v&&Object.keys(v).length===1&&Array.isArray(v.files);}catch{return false;}
+  });
+  if(!blocks.length)return [];
+  if(blocks.length!==1)throw Error('WORKER_ARTIFACT_MANIFEST_AMBIGUOUS');
+  const manifest=JSON.parse(blocks[0][1]);
+  if(!Array.isArray(manifest.files)||manifest.files.length>maxFiles)throw Error('WORKER_ARTIFACT_MANIFEST_INVALID');
+  const base=assertControlledPath(workspace),seen=new Set(),files=[];
+  for(const value of manifest.files){
+    if(typeof value!=='string'||!path.isAbsolute(value))throw Error('WORKER_ARTIFACT_PATH_INVALID');
+    const resolved=assertControlledPath(value),relative=path.relative(base,resolved);
+    if(!relative||relative==='..'||relative.startsWith('..'+path.sep)||path.isAbsolute(relative))throw Error('WORKER_ARTIFACT_OUTSIDE_TASK');
+    let ancestor=resolved;while(ancestor.toLowerCase()!==base.toLowerCase()){
+      const st=fs.lstatSync(ancestor);if(st.isSymbolicLink())throw Error('WORKER_ARTIFACT_LINK_DENIED');ancestor=path.dirname(ancestor);
+    }
+    if(fs.realpathSync.native(resolved).toLowerCase()!==resolved.toLowerCase())throw Error('WORKER_ARTIFACT_LINK_DENIED');
+    const stat=fs.lstatSync(resolved);if(!stat.isFile()||stat.nlink!==1||stat.size<1)throw Error('WORKER_ARTIFACT_FILE_DENIED');
+    if(stat.size>limit||!extensionMime[path.extname(resolved).slice(1).toLowerCase()]){
+      files.push({path:resolved,name:path.basename(resolved),size:stat.size,kind:'file',uploadable:false,verified:'local_regular_file_metadata',reason:stat.size>limit?'超过上传大小限制':'不支持直接上传此格式'});continue;
+    }
+    const bytes=fs.readFileSync(resolved),content=checkContent(bytes,extensionMime[path.extname(resolved).slice(1).toLowerCase()],path.basename(resolved));
+    const hash=sha(bytes);if(seen.has(hash))continue;seen.add(hash);
+    files.push({path:resolved,name:path.basename(resolved),sha256:hash,size:bytes.length,mimeType:content.mimeType,kind:content.kind,uploadable:true});
+  }
+  return files;
 }
 
 function checkContent(buffer,mime,name){
@@ -76,16 +118,32 @@ function checkContent(buffer,mime,name){
   else if(mime==='image/bmp')valid=buffer.subarray(0,2).toString()==='BM';
   else if(mime==='application/pdf')valid=buffer.subarray(0,5).toString()==='%PDF-';
   else if(['doc','xls','ppt'].includes(types[mime]))valid=starts([208,207,17,224,161,177,26,225]);
-  else if(['docx','xlsx','pptx'].includes(types[mime]))valid=starts([80,75,3,4]);
-  else{try{const text=new TextDecoder('utf-8',{fatal:true}).decode(buffer);valid=!text.includes('\0');}catch{valid=false;}}
+  else if(['docx','xlsx','pptx'].includes(types[mime])){
+    // Container signature only; this does not certify the Office document's
+    // contents. Refuse truncated ZIP headers without parsing or extracting it.
+    const end=buffer.lastIndexOf(Buffer.from([80,75,5,6]));
+    valid=starts([80,75,3,4])&&end>=4&&end+22<=buffer.length&&end+22+buffer.readUInt16LE(end+20)===buffer.length;
+  }
+  else{try{const text=new TextDecoder('utf-8',{fatal:true}).decode(buffer);valid=!text.includes('\0');if(mime==='application/json')JSON.parse(text.replace(/^\uFEFF/,''));}catch{valid=false;}}
   if(!valid)throw Error('ATTACHMENT_CONTENT_MISMATCH');
   return {mimeType:mime,extension:types[mime],kind:mime.startsWith('image/')?'image':'file'};
 }
 function attachmentDir(root,runId){
   if(!/^[\w-]{1,100}$/.test(runId))throw Error('ATTACHMENT_RUN_ID_DENIED');
   try{root=assertControlledPath(root);}catch{throw Error('ATTACHMENT_ROOT_DENIED');}
+  // Check the nearest existing ancestor before creating even the first folder:
+  // a new root beneath a same-drive junction must not write through that link.
+  let ancestor=root,ancestorStat;
+  while(!ancestorStat){
+    try{ancestorStat=fs.lstatSync(ancestor);}catch(e){if(e.code!=='ENOENT')throw e;}
+    if(ancestorStat)break;
+    const parent=path.dirname(ancestor);
+    if(parent===ancestor)throw Error('ATTACHMENT_ROOT_DENIED');
+    ancestor=parent;
+  }
+  if(!ancestorStat.isDirectory()||ancestorStat.isSymbolicLink()||path.resolve(fs.realpathSync.native(ancestor)).toLowerCase()!==ancestor.toLowerCase())throw Error('ATTACHMENT_PATH_LINK_DENIED');
   for(const part of [root,path.join(root,'artifacts'),path.join(root,'artifacts',runId),path.join(root,'artifacts',runId,'attachments')]){
-    if(fs.existsSync(part)){if(fs.lstatSync(part).isSymbolicLink()||path.resolve(fs.realpathSync(part)).toLowerCase()!==part.toLowerCase())throw Error('ATTACHMENT_PATH_LINK_DENIED');}
+    if(fs.existsSync(part)){const stat=fs.lstatSync(part);if(!stat.isDirectory()||stat.isSymbolicLink()||path.resolve(fs.realpathSync(part)).toLowerCase()!==part.toLowerCase())throw Error('ATTACHMENT_PATH_LINK_DENIED');}
     else fs.mkdirSync(part);
   }
   return path.join(root,'artifacts',runId,'attachments');
@@ -128,10 +186,12 @@ export async function download(page,candidates,{runId,root=projectRoot,maxBytes=
     const bytes=Buffer.from(fetched.data,'base64');
     if(!bytes.length||bytes.length>maxBytes)throw Error('ATTACHMENT_TOO_LARGE');
     const content=checkContent(bytes,fetched.mimeType,item.name);
+    if(item.kind==='image'&&content.kind!=='image')throw Error('ATTACHMENT_CONTENT_MISMATCH');
     const hash=sha(bytes);if(seen.has(hash))continue;seen.add(hash);
     const name=hash+'.'+content.extension,filePath=path.join(dir,name);
     if(fs.existsSync(filePath)){
-      if(fs.lstatSync(filePath).isSymbolicLink()||sha(fs.readFileSync(filePath))!==hash)throw Error('ATTACHMENT_EXISTING_FILE_MISMATCH');
+      const stat=fs.lstatSync(filePath);
+      if(!stat.isFile()||stat.isSymbolicLink()||stat.nlink!==1||stat.size!==bytes.length||sha(fs.readFileSync(filePath))!==hash)throw Error('ATTACHMENT_EXISTING_FILE_MISMATCH');
     }else fs.writeFileSync(filePath,bytes,{flag:'wx'});
     files.push({sha256:hash,path:filePath,name,mimeType:content.mimeType,kind:content.kind,size:bytes.length,sourceUrlHash:sha(item.url),messageId:item.messageId});
   }
@@ -143,7 +203,9 @@ export function nativeBlocks(files){
   return files.map(file=>{
     let resolved;
     try{resolved=assertControlledPath(file.path);}catch{throw Error('ATTACHMENT_FILE_DENIED');}
-    if(fs.lstatSync(resolved).isSymbolicLink())throw Error('ATTACHMENT_FILE_DENIED');
+    const stat=fs.lstatSync(resolved);
+    if(!stat.isFile()||stat.isSymbolicLink()||stat.nlink!==1||path.resolve(fs.realpathSync.native(resolved)).toLowerCase()!==resolved.toLowerCase())throw Error('ATTACHMENT_FILE_DENIED');
+    if(stat.size<1||stat.size>limit||stat.size!==file.size)throw Error('ATTACHMENT_FILE_CHANGED');
     const bytes=fs.readFileSync(resolved);
     if(bytes.length>limit||bytes.length!==file.size||sha(bytes)!==file.sha256)throw Error('ATTACHMENT_FILE_CHANGED');
     const checked=checkContent(bytes,file.mimeType,file.name);

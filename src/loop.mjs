@@ -1,88 +1,80 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {randomUUID} from 'node:crypto';
 import {BridgeStore} from './store.mjs';
 import {connectGpt,browserStatus,sendGpt,commandText} from './chatgpt-web.mjs';
 import {connectDesktop,loadWorkerBinding} from './workbuddy-desktop.mjs';
-import {coordinatorPrompt,parseCommand} from './protocol.mjs';
-import {prepareGptTab,rememberGptTab} from './gpt-tab.mjs';
+import {prepareGptTab,rememberGptTab,targetId,resolveRunTab} from './gpt-tab.mjs';
 import {dispatchWorkerText} from './model-router.mjs';
-import {collect as collectAttachments,download as downloadAttachments} from './attachments.mjs';
+import {collect,download,workerArtifacts} from './attachments.mjs';
+import {driveRun} from './workflow.mjs';
+import {checkRequirements} from './capability-preflight.mjs';
+import {ensureTaskWorker} from './task-worker.mjs';
+import {assertControlledPath} from './local-config.mjs';
+export {verifiedCoordinatorAttachments} from './workflow.mjs';
 const root=fileURLToPath(new URL('..',import.meta.url));
-export async function runTextLoop(goal,{maxRounds=3,onProgress=()=>{},resumeRunId=null}={}){
-  if(typeof goal!=='string'||!goal.trim()||goal.length>12000||!Number.isInteger(maxRounds)||maxRounds<1||maxRounds>3)throw new Error('Invalid text-only goal or round limit');
-  const store=new BridgeStore(path.join(root,'data/bridge.sqlite'));
-  let gpt,desktop,run,page,lease;
-  try{
-    lease=store.acquireRunner();
-    store.recover();
-    const unfinished=store.list().find(r=>!['done','failed','cancelled'].includes(r.state));
-    if(unfinished&&unfinished.id!==resumeRunId)throw new Error('Existing run needs resume/reconciliation: '+unfinished.id+' '+unfinished.state);
-    if(resumeRunId&&(!unfinished||unfinished.state==='uncertain'))throw new Error('Resume requires an existing reconciled run');
-    gpt=await connectGpt();desktop=await connectDesktop();
-    const context=gpt.browser.contexts()[0];
-    const source=context.pages().find(p=>p.url().startsWith('https://chatgpt.com/'));
-    if(!source||(await browserStatus(source)).loginRequired)throw new Error('Log in to ChatGPT in the dedicated browser window first');
-    const worker=loadWorkerBinding();
-    if(resumeRunId){
-      run=unfinished;
-      if(run.goal!==goal||run.maxRounds!==maxRounds||run.workerSessionId!==worker.sessionId)throw new Error('Resume binding mismatch');
-      for(const candidate of context.pages()){const cdp=await context.newCDPSession(candidate);const {targetInfo}=await cdp.send('Target.getTargetInfo');await cdp.detach();if(targetInfo.targetId===run.gptTargetId)page=candidate;}
-      const lastReply=store.messages(run.id).filter(m=>m.direction==='gpt'&&m.state==='delivered').at(-1)?.result;
-      const expectedUrl=lastReply?.url??run.gptUrl;
-      if(!page||page.url()!==expectedUrl)throw new Error('Bound GPT tab changed or missing');
-      if(expectedUrl!==run.gptUrl)run=store.update(run.id,run.state,{gptUrl:expectedUrl});
-    }else{page=await prepareGptTab(context,store.list());}
-    await page.waitForTimeout(1500);
-    const initialStatus=await browserStatus(page);if(initialStatus.loginRequired||initialStatus.composerCount!==1)throw new Error('Fresh GPT test conversation not ready');
-    const cdp=await context.newCDPSession(page);const target=await cdp.send('Target.getTargetInfo');await cdp.detach();
-    run??=store.create(goal,{maxRounds,scope:worker.mode==='normal'?'normal WorkBuddy permissions; existing MCP and Skills; no C writes; approved models only':'text-only; no tools/files/commands',runtimeMode:worker.mode??'test',workerSessionId:worker.sessionId,gptTargetId:target.targetInfo.targetId,gptUrl:page.url()});
-    const pauseRequested=()=>{
-      const file=path.join(root,'data/pause-request.json');
-      return fs.existsSync(file)&&JSON.parse(fs.readFileSync(file,'utf8')).runId===run.id;
-    };
-    const pause=()=>{store.update(run.id,'paused',{pausedAt:new Date().toISOString()});onProgress({runId:run.id,state:'paused'});return store.get(run.id);};
-    onProgress({runId:run.id,state:run.state});
-    const deadline=Date.now()+30*60*1000;
-    let outgoing=(resumeRunId?store.messages(run.id).find(m=>m.direction==='gpt'&&m.step===0)?.payload.text:null)??coordinatorPrompt({runId:run.id,goal,maxRounds,mode:worker.mode??'test'}),replyTo=null;
-    const usedCommands=new Set();
-    for(let step=0;step<=maxRounds;step++){
-      if(pauseRequested())return pause();
-      if(Date.now()>deadline)throw new Error('Overall loop deadline exceeded');
-      const g=store.prepare(run.id,step,'gpt',{text:outgoing});
-      let response=g.state==='delivered'?g.result:null;
-      if(!response){
-      store.update(run.id,'waiting_gpt',{step});store.markSending(g.id);onProgress({runId:run.id,state:'waiting_gpt',step});
-      try{response=await sendGpt(page,outgoing,{onReceipt:async receipt=>{store.update(run.id,'waiting_gpt',{gptUrl:receipt.url,gptUserMessageId:receipt.userMessageId});await rememberGptTab(page);}});
-        const sources=await collectAttachments(page,{messageId:response.id,role:'assistant'});
-        response.attachments=await downloadAttachments(page,sources,{runId:run.id});
-        store.delivered(g.id,response);store.update(run.id,'waiting_gpt',{gptUrl:response.url,gptUserMessageId:response.userMessageId});await rememberGptTab(page);
-      }
-      catch(e){if(store.message(g.id).state==='sending'){if(response)store.delivered(g.id,{...response,attachmentError:e.message});else store.uncertain(g.id,e.message);}throw e;}
-      }
-      if(pauseRequested())return pause();
-      const command=parseCommand(commandText(response),{runId:run.id,replyToResultId:replyTo});
-      if(usedCommands.has(command.commandId))throw new Error('Repeated GPT command ID');usedCommands.add(command.commandId);
-      if(command.action==='done'){
-        if(step===0)throw new Error('GPT claimed done without any worker evidence');
-        store.update(run.id,'done',{summary:command.summary??'',workerRounds:step,finishedAt:new Date().toISOString()});onProgress({runId:run.id,state:'done',step});return store.get(run.id);
-      }
-      if(command.action==='ask_user'){store.update(run.id,'needs_user',{question:command.summary??command.instruction??'GPT requests input'});return store.get(run.id);}
-      if(step>=maxRounds)throw new Error('Worker round limit reached');
-      const attachments=response.attachments??[];
-      const w=store.prepare(run.id,step,'workbuddy',{command,sessionId:worker.sessionId,...(attachments.length?{attachments}:{})});
-      let result=w.state==='delivered'?w.result:null;
-      if(!result){
-      store.update(run.id,'waiting_workbuddy',{commandId:command.commandId});store.markSending(w.id);onProgress({runId:run.id,state:'waiting_workbuddy',step});
-      try{result=await dispatchWorkerText(desktop.page,{sessionId:worker.sessionId,requestId:w.id,instruction:command.instruction,attachments});store.delivered(w.id,result);}
-      catch(e){store.uncertain(w.id,e.message);throw e;}
-      }
-      replyTo=w.id;
-      const dir=path.join(root,'artifacts',run.id);fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(path.join(dir,`worker-${step+1}.json`),JSON.stringify(result,null,2)+'\n');
-      outgoing=JSON.stringify({kind:'workbuddy_result',runId:run.id,resultId:replyTo,commandId:command.commandId,status:'completed',evidence:{model:result.model,streamAgrees:result.streamAgrees,toolCallCount:result.toolCallCount},text:result.text})+'\n请根据实际结果决定下一步，只输出约定的 bridge-command 块。';
-    }
-    throw new Error('Loop ended without coordinator decision');
-  }catch(e){if(run)store.update(run.id,store.messages(run.id).some(m=>m.state==='uncertain')?'uncertain':'failed',{error:e.message});throw e;}
-  finally{await gpt?.browser.close().catch(()=>{});await desktop?.browser.close().catch(()=>{});if(lease)store.releaseRunner(lease);store.close();}
+export async function runTextLoop(goal,{onProgress=()=>{},resumeRunId=null,stateFile=null,initialAttachments=[]}={}){
+ if(typeof goal!=='string'||!goal.trim()||goal.length>12000)throw Error('Invalid goal');
+ if(stateFile){stateFile=assertControlledPath(stateFile);const relative=path.relative(path.join(root,'runtime/test-runs'),stateFile);if(!relative||relative.startsWith('..')||path.isAbsolute(relative))throw Error('Test state must stay inside runtime/test-runs');}
+ const store=new BridgeStore(stateFile??path.join(root,'data/bridge.sqlite'));
+ let gpt,desktop,run,page,lease;
+ try{
+  lease=store.acquireRunner();store.recover(lease);
+  const unfinished=resumeRunId?store.get(resumeRunId):null;
+  if(store.list().some(r=>r.id!==resumeRunId&&r.state==='uncertain'))throw Error('另一个工作结果待核验，请先检查中断状态；不会自动重发。');
+  if(resumeRunId&&(!unfinished||unfinished.id!==resumeRunId||!['paused','needs_user'].includes(unfinished.state)||store.messages(unfinished.id).some(m=>['sending','uncertain'].includes(m.state))))throw Error('Resume requires verified task state');
+  gpt=await connectGpt();desktop=await connectDesktop();
+  const context=gpt.browser.contexts()[0],base=loadWorkerBinding();
+  if(resumeRunId){
+   run=unfinished;
+   if(run.runtimeMode!==(base.mode??'test'))throw Error('Resume runtime mode differs from the saved task');
+   if(run.cursor===undefined)throw Error('Legacy task requires result reconciliation; will not replay old commands');
+   const binding=await resolveRunTab(context,run,store.messages(run.id));page=binding.page;
+   if(binding.targetId!==run.gptTargetId||binding.url!==run.gptUrl){run=store.update(run.id,run.state,{gptTargetId:binding.targetId,gptUrl:binding.url,gptRebindings:[...(run.gptRebindings??[]),{from:binding.priorTargetId,to:binding.targetId,at:new Date().toISOString(),verified:'latest_delivered_message_pair'}]});await rememberGptTab(page);}
+  }else if(stateFile){page=context.pages().find(p=>p.url()==='https://chatgpt.com/')??await context.newPage();await page.goto('https://chatgpt.com/',{waitUntil:'domcontentloaded',timeout:45000});}
+  else page=await prepareGptTab(context,store.list());
+  await page.locator('#prompt-textarea:visible,textarea#mobile-composer-prompt:visible,[contenteditable=true][role=textbox]:visible').first().waitFor({state:'visible',timeout:45000});
+  const status=await browserStatus(page);
+  if(status.loginRequired||status.composerCount!==1)throw Error('GPT conversation not ready');
+  run??=store.create(goal,{cursor:0,workerRounds:0,references:initialAttachments,nextAttachments:initialAttachments,scope:base.mode==='normal'?'normal tools; no C writes; approved models only':'text-only',runtimeMode:base.mode??'test',gptTargetId:await targetId(page),gptUrl:page.url()});
+  const pauseRequested=()=>{try{return JSON.parse(fs.readFileSync(path.join(root,'data/pause-request.json'),'utf8')).runId===run.id;}catch{return false;}};
+  return await driveRun({store,runId:run.id,pauseRequested,onProgress,
+   coordinator:async(payload,message)=>{
+    let response;
+    try{
+     const known=new Set(store.messages(run.id).filter(m=>m.direction==='gpt'&&m.state==='delivered'&&m.result?.url===page.url()).flatMap(m=>(m.result.uploadedAttachments??[]).map(a=>a.sha256+':'+a.name)));
+     const uploads=(payload.attachments??[]).filter(a=>!known.has(a.sha256+':'+a.name));
+     response=await sendGpt(page,payload.text,{attachments:uploads,onReceipt:async receipt=>{store.update(run.id,'waiting_gpt',{gptUrl:receipt.url,gptUserMessageId:receipt.userMessageId});await rememberGptTab(page);}});
+     response.commandText=commandText(response);
+     const sources=await collect(page,{messageId:response.id,role:'assistant'});
+     response.attachments=await download(page,sources,{runId:run.id});
+     await rememberGptTab(page);return response;
+    }catch(e){if(response){response.attachmentError=e.message;response.attachments=[];store.delivered(message.id,response);}throw e;}
+   },
+   checkCapabilities:async current=>{
+    const binding=await ensureTaskWorker(desktop.page,current,{base});
+    store.update(run.id,store.get(run.id).state,{workerSessionId:binding.sessionId,workerWorkspace:binding.workspace,displayName:binding.displayName});
+    return checkRequirements(desktop.page,current.requirements??[],{workspace:binding.workspace,confirmations:current.capabilityConfirmations??[]});
+   },
+   worker:async(payload,message)=>{
+    let current=store.get(run.id);
+    const binding=await ensureTaskWorker(desktop.page,current,{base});
+    store.update(run.id,'waiting_workbuddy',{workerSessionId:binding.sessionId,workerWorkspace:binding.workspace,displayName:binding.displayName});
+    return dispatchWorkerText(desktop.page,{sessionId:binding.sessionId,requestId:message.id,instruction:payload.command.instruction+'\n固定验收标准：'+JSON.stringify(current.acceptance),attachments:payload.attachments,onActivity:activity=>{if(store.get(run.id).state==='waiting_workbuddy')store.update(run.id,'waiting_workbuddy',{workerActivity:activity,question:activity.needsUser?'WorkBuddy 正在等待授权或输入。请到其原任务处理，桥接会继续监听；不会取消或重发。':null});}});
+   },
+   artifacts:(result,current)=>workerArtifacts(result.text,{workspace:current.workerWorkspace})
+  });
+ }catch(e){
+  if(run){
+   const uncertain=store.messages(run.id).some(m=>['sending','uncertain'].includes(m.state));
+   store.update(run.id,uncertain?'uncertain':'needs_user',{error:e.message,question:uncertain?'发送或结果待核验；不会自动重发，请检查中断状态。':e.message,waitReason:uncertain?'reconciliation':'error'});
+  }
+  throw e;
+ }finally{
+  await gpt?.browser.close().catch(()=>{});await desktop?.browser.close().catch(()=>{});
+  if(lease)store.releaseRunner(lease);store.close();
+ }
+}
+export async function recheckRunCapabilities(run,{connect=connectDesktop}={}){
+ const desktop=await connect();try{return await checkRequirements(desktop.page,run.requirements??[],{workspace:run.workerWorkspace??loadWorkerBinding().workspace,confirmations:run.capabilityConfirmations??[]});}finally{await desktop.browser.close();}
 }

@@ -1,6 +1,6 @@
 # Windows 预览发行维护说明
 
-当前目标版本为 **0.4.0-preview.1**。本页面向维护者；普通用户应从 [Release](https://github.com/mmiaommiaom/ChatWorkBridge/releases/tag/v0.4.0-preview.1) 下载安装 EXE 或 portable ZIP，按 [SETUP](SETUP.md) 启动，无需 npm。
+当前源码目标版本为 **0.4.0-preview.4**。本页面向维护者；已发布版本以 [Releases](https://github.com/mmiaommiaom/ChatWorkBridge/releases) 为准，普通用户下载安装 EXE 或 portable ZIP，按 [SETUP](SETUP.md) 启动，无需 npm。
 
 ## 构建输入
 
@@ -19,7 +19,7 @@
 示例路径仅为占位，替换为自己的已核验工具目录：
 
 ~~~powershell
-.\scripts\build-windows.ps1 -NodeDirectory "E:\BuildTools\node-v22.22.2-win-x64" -MakensisDirectory "E:\BuildTools\nsis-3.13" -Version "0.4.0-preview.1"
+.\scripts\build-windows.ps1 -NodeDirectory "E:\BuildTools\node-v22.22.2-win-x64" -MakensisDirectory "E:\BuildTools\nsis-3.13" -Version "0.4.0-preview.4"
 ~~~
 
 | 参数 | 含义 |
@@ -35,16 +35,16 @@
 
 ## 输出与检查
 
-默认产物位于 dist/0.4.0-preview.1：
+默认产物位于 dist/0.4.0-preview.4：
 
-- ChatWorkBridge-0.4.0-preview.1-windows-x64-setup.exe
-- ChatWorkBridge-0.4.0-preview.1-windows-x64-portable.zip
+- ChatWorkBridge-0.4.0-preview.4-windows-x64-setup.exe
+- ChatWorkBridge-0.4.0-preview.4-windows-x64-portable.zip
 - SHA256SUMS
 - release-manifest.json
 
 portable ZIP 含顶层 ChatWorkBridge 目录。根目录包含 START.vbs、START.cmd、src、scripts、ui；内置 Node 位于 runtime/node/node.exe。包不包含 Chrome、WorkBuddy、模型、账号资料、原机授权、历史日志或测试结果。
 
-安装器只向使用者选择的新非 C 盘目录解压；不创建卸载器、系统注册表项或桌面快捷方式，不覆盖已有目录。目录校验使用系统 PowerShell，只读检查目标与目录联接，不隐藏执行；日常模式的 PowerShell 进程检查同样保持可见。非静默安装成功后会询问是否打开 START.vbs，只有使用者选择同意后才启动；静默安装不启动应用。升级使用新目录；保管旧目录，当前没有自动迁移保证。
+安装器只向使用者选择的非 C 盘新目录或空文件夹解压；拒绝非空目录，包括仅含隐藏文件或子目录的目录。不创建卸载器、系统注册表项或桌面快捷方式。目录校验使用可见系统 PowerShell，只读检查目标与目录联接；日常模式的进程检查直接使用 tasklist.exe，无需 PowerShell。非静默安装成功后询问是否打开 START.vbs；静默安装不启动应用。升级使用新目录并保管旧目录，当前没有自动迁移保证。旧的 0.4.0-preview.1 发布安装包仍要求目录尚未创建。
 
 发布前检查安装器和 ZIP 哈希、产物清单及许可；确认构建载荷中没有 config/local.json、账号资料、浏览器资料、数据库、附件或日志。SHA256SUMS 用于文件一致性核对，不等同于代码签名或发布者身份认证。
 
@@ -55,9 +55,9 @@ portable ZIP 含顶层 ChatWorkBridge 目录。根目录包含 START.vbs、START
 - 在 GitHub Actions 手动执行 workflow_dispatch。
 - main 分支提交涉及 package.json 或该工作流文件。
 
-它下载固定版本 Node.js 22.22.2 与 NSIS 3.13，并验证硬编码 SHA256；安装锁定依赖并运行 Windows 离线测试，然后构建安装器和 ZIP。最后以 softprops/action-gh-release@v2 创建或更新 **v0.4.0-preview.1 预发布**，上传安装器、portable ZIP、SHA256SUMS 和 release-manifest.json。
+它下载固定版本 Node.js 22.22.2 与 NSIS 3.13，并验证硬编码 SHA256；安装锁定依赖并运行 Windows 离线测试，然后构建安装器和 ZIP，执行 packaging/test-installer.ps1 的 22 项安装路径检查。通过后以 softprops/action-gh-release@v2 创建 package.json 版本对应的预发布，上传安装器、portable ZIP、SHA256SUMS 和 release-manifest.json。
 
-仅修改 README 或其他源码文件不会按当前路径过滤器自动触发打包。需要发布这些修改时，使用手动触发，或在准备新版本时同步更新版本与工作流。当前标签固定；发布下一版本时必须检查 package.json、锁文件、工作流 tag/name 和文档链接，避免把新内容错误上传旧标签。
+仅修改 README 或其他源码文件不会按当前路径过滤器自动触发打包。准备新版本时同步更新 package.json、锁文件和文档。工作流读取版本生成 tag/name，并在该标签已经存在时停止，避免覆盖旧发行版。
 
 构建的 OutputDirectory 与上传 files 路径必须一致。默认本地输出有版本子目录；当前工作流显式传入 dist 根目录，和上传路径一致。修改工作流时要保留这一对应关系。
 
@@ -65,6 +65,6 @@ portable ZIP 含顶层 ChatWorkBridge 目录。根目录包含 START.vbs、START
 
 ## 验证边界
 
-CI 的依赖、语法和 Windows 离线测试不登录 ChatGPT/WorkBuddy，不发送模型消息，不运行真实任务。构建成功不表示安装器已运行、应用已登录、模型可用或完整正常模式已验收。
+CI 的依赖、语法、Windows 离线测试和静默安装检查不登录 ChatGPT/WorkBuddy，不发送模型消息，不运行真实任务。构建完成只证明产物生成；只有后续安装检查成功才说明对应安装路径通过。它们均不代表真实模型或日常模式完整闭环已验收。
 
 本预览版尚未签名。遇到 SmartScreen 或企业拦截时，停止执行并核对来源、哈希与源码；不指导关闭防护或绕过企业策略。当前已知真实能力与待验收项见 [STATUS](STATUS.md)。
